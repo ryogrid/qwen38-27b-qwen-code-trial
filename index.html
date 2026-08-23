@@ -1,61 +1,12 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="ja">
-<head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>PONG</title>
-<link rel="stylesheet" href="style.css" />
-</head>
-<body>
-  <main class="stage">
-    <div id="game-wrap">
-      <!-- スコア -->
-      <header id="scoreboard" aria-live="polite">
-        <span id="player-score">0</span>
-        <span class="score-label">PONG</span>
-        <span id="ai-score">0</span>
-      </header>
-
-      <!-- ゲーム画面 -->
-      <canvas id="game" width="900" height="520"></canvas>
-
-      <!-- メインメニュー -->
-      <section id="menu" class="overlay visible">
-        <h1>PONG</h1>
-        <p class="sub">1P vs CPU</p>
-        <div class="difficulty">
-          <span>難易度</span>
-          <button data-level="easy">EASY</button>
-          <button data-level="medium" class="selected">NORMAL</button>
-          <button data-level="hard">HARD</button>
-        </div>
-        <p id="menu-msg">まずは 5 ポイントで勝利</p>
-        <button id="start-btn">START (Enter)</button>
-      </section>
-
-      <!-- パーズ -->
-      <section id="pause-overlay" class="overlay center-only">
-        <h2>PAUSE</h2>
-        <p>P / Esc で再開</p>
-      </section>
-
-      <!-- ゲームオーバー -->
-      <section id="gameover" class="overlay center-only">
-        <h2 id="result-title">YOU WIN!</h2>
-        <p id="final-score"></p>
-        <button id="restart-btn">RESTART (Enter)</button>
-      </section>
-
-      <!-- 操作説明 -->
-      <footer id="help">
-        <span>&#8593;/&#8595; や W/S で移動</span><i>|</i>
-        <span>マウスもOK</span><i>|</i>
-        <span>P: パーズ</span><i>|</i>
-        <span>M: サウンドON/OFF</span>
-      </footer>
-    </div>
-  </main>
-
-  <script src="script.js"></script>
-</body>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PONG</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
 </html>

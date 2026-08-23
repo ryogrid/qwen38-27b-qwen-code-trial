@@ -1,0 +1,125 @@
+/* ===== レトロPongテーマ ===== */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html, body {
+  height: 100%;
+}
+
+body {
+  background: #0a0a0a;
+  color: #f4f4f4;
+  font-family: "Courier New", Courier, monospace;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+}
+
+.stage { width: 100%; display: flex; justify-content: center; padding: 16px; }
+
+#game-wrap {
+  position: relative;
+  width: min(94vw, 900px);
+  aspect-ratio: 900 / 520;
+}
+
+/* ===== スコア ===== */
+#scoreboard {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  width: 100%;
+  padding: 0 8px 6px;
+  font-size: clamp(24px, 5vw, 40px);
+  font-weight: bold;
+  letter-spacing: 4px;
+}
+
+#scoreboard .score-label {
+  font-size: clamp(12px, 2vw, 16px);
+  opacity: 0.4;
+  letter-spacing: 8px;
+}
+
+/* ===== キャンバス ===== */
+canvas {
+  display: block;
+  width: 100%;
+  height: calc(100% - 2.5em);
+  background: #000;
+  border-top: 3px solid #f4f4f4;
+  cursor: none;
+}
+
+/* ===== オーバーレイ共通 ===== */
+.overlay {
+  position: absolute;
+  inset: 0;
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  background: rgba(0, 0, 0, 0.72);
+  text-align: center;
+}
+
+.overlay.visible { display: flex; }
+
+.overlay h1 {
+  font-size: clamp(48px, 9vw, 84px);
+  letter-spacing: 16px;
+  margin-left: 16px; /* レタリング補正 */
+}
+
+.overlay h2 {
+  font-size: clamp(32px, 6vw, 56px);
+  letter-spacing: 8px;
+}
+
+.overlay .sub { opacity: 0.7; letter-spacing: 4px; }
+.overlay #menu-msg { opacity: 0.8; letter-spacing: 2px; }
+
+/* ===== 難易度選択 ===== */
+.difficulty {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+}
+
+button {
+  font-family: inherit;
+  background: transparent;
+  color: #f4f4f4;
+  border: 2px solid #f4f4f4;
+  padding: 8px 16px;
+  font-size: 15px;
+  letter-spacing: 2px;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+
+button:hover { background: #f4f4f4; color: #000; }
+button.selected { background: #f4f4f4; color: #000; }
+
+#start-btn, #restart-btn { font-size: 18px; padding: 12px 28px; margin-top: 8px; }
+
+/* ===== ヘルプ行 ===== */
+#help {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding-top: 6px;
+  font-size: 12px;
+  opacity: 0.55;
+  letter-spacing: 1px;
+}
+
+#help i { font-style: normal; opacity: 0.5; }
+
+@media (max-width: 640px) {
+  #help span:nth-child(3), #help i:nth-child(3) { display: none; }
+}

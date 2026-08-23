@@ -1,17 +1,18 @@
 // Web Audio による効果音（旧 script.js から移植）
-let audioCtx = null;
+let audioCtx: AudioContext | null = null;
 let enabled = true;
 
 // サウンドON/OFF（旧 soundOn フラグと同等）
-export function setSoundEnabled(on) {
+export function setSoundEnabled(on: boolean): void {
   enabled = on;
 }
 
-export function beep(freq, dur = 0.06, vol = 0.18) {
+export function beep(freq: number, dur = 0.06, vol = 0.18): void {
   if (!enabled) return;
   try {
     if (!audioCtx) {
-      const Ctx = window.AudioContext || window.webkitAudioContext;
+      const w = window as Window & { webkitAudioContext?: typeof AudioContext };
+      const Ctx = (window.AudioContext ?? w.webkitAudioContext)!;
       audioCtx = new Ctx();
     }
     const osc = audioCtx.createOscillator();

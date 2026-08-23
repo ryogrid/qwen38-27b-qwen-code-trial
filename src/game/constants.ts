@@ -1,6 +1,6 @@
 // ===== ゲームの定数（旧 script.js から移植）=====
 export const W = 900; // キャンバス幅
-export const H = 520; // キャンバスの高さ
+export const H = 520; // キャバスの高さ
 
 export const PADDLE_W = 14;
 export const PADDLE_H = 92;
@@ -26,11 +26,15 @@ export const DIFFICULTIES = {
   easy: { aiSpeed: 3.4, error: 52 },
   medium: { aiSpeed: 4.6, error: 28 },
   hard: { aiSpeed: 6.4, error: 10 },
-};
+} as const;
+
+export type DifficultyKey = keyof typeof DIFFICULTIES;
 
 export const SCREENS = {
   MENU: "menu",
   PLAYING: "playing",
   PAUSED: "paused",
   GAMEOVER: "gameover",
-};
+} as const;
+
+export type ScreenId = (typeof SCREENS)[keyof typeof SCREENS];

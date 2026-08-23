@@ -1,5 +1,6 @@
 // ===== ゲームのシミュレーション状態と毎フレーム更新ロジック（旧 script.js から移植）=====
-import { beep } from "./sound.js";
+import { beep } from "./sound";
+import type { DifficultyKey } from "./constants";
 import {
   W,
   H,
@@ -16,10 +17,46 @@ import {
   MOUSE_FOLLOW_LERP,
   SERVE_ANGLE_MAX,
   DIFFICULTIES,
-} from "./constants.js";
+} from "./constants";
+
+export interface Paddle {
+  y: number;
+}
+
+export interface AIPaddle extends Paddle {
+  targetY: number;
+}
+
+export interface Ball {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  speed: number;
+}
+
+export type Side = "player" | "ai";
+
+export interface GameState {
+  player: Paddle;
+  ai: AIPaddle;
+  ball: Ball;
+  serveTimer: number; // ボール発射までの待機フレーム数（<=0 で launchBall）
+  serveDir: number; // 次のサーブ方向（-1=プレイヤー側 / +1=AI側）
+  aiErrOff: number; // AI の追跡誤差（サーブごとに乱数化）
+  keys: { up: boolean; down: boolean };
+  mouseY: number; // 直近のマウス y（キャンバス座標）
+  useMouseFollow: boolean; // 移動キーで操作するとキー優先に切り替わる
+}
+
+export interface LastTimeRef {
+  current: number;
+}
+
+type DifficultyDef = (typeof DIFFICULTIES)[DifficultyKey];
 
 // 新しいゲーム状態を作成（canvas 1つにつき1つのインスタンス）
-export function createGame() {
+export function createGame(): GameState {
   return {
     player: { y: H / 2 }, // パドルは中心 y で管理
     ai: { y: H / 2, targetY: H / 2 },
@@ -33,12 +70,12 @@ export function createGame() {
   };
 }
 
-function clampPaddle(p) {
+function clampPaddle(p: Paddle): void {
   p.y = Math.max(PADDLE_H / 2, Math.min(H - PADDLE_H / 2, p.y));
 }
 
 // ポイント後のサーブ準備：ボールを中央に置き、待機後発射
-export function prepareServe(g, dir) {
+export function prepareServe(g: GameState, dir?: number): void {
   g.ball.x = W / 2;
   g.ball.y = H / 2;
   g.ball.vx = 0;
@@ -48,14 +85,14 @@ export function prepareServe(g, dir) {
   g.serveDir = dir || (Math.random() < 0.5 ? -1 : 1);
 }
 
-function launchBall(g, d) {
+function launchBall(g: GameState, d: DifficultyDef): void {
   const angle = (Math.random() * 2 - 1) * SERVE_ANGLE_MAX; // ±36度以内
   g.aiErrOff = (Math.random() * 2 - 1) * d.error;
   g.ball.vx = Math.cos(angle) * g.ball.speed * g.serveDir;
   g.ball.vy = Math.sin(angle) * g.ball.speed;
 }
 
-function updatePlayer(g, dt) {
+function updatePlayer(g: GameState, dt: number): void {
   const speed = PLAYER_SPEED * dt;
   if (g.keys.up) g.player.y -= speed;
   if (g.keys.down) g.player.y += speed;
@@ -66,7 +103,7 @@ function updatePlayer(g, dt) {
   clampPaddle(g.player);
 }
 
-function updateAI(g, d, dt) {
+function updateAI(g: GameState, d: DifficultyDef, dt: number): void {
   // ボールが AI 側へ来ている間だけ追跡、そうでなければ中央に戻る
   let targetY = H / 2;
   if (g.serveTimer <= 0 && g.ball.vx > 0) targetY = g.ball.y + g.aiErrOff;
@@ -82,7 +119,7 @@ function updateAI(g, d, dt) {
 }
 
 // パドル反発：当たった位置で反射角を決め、やや加速（上限あり）
-function bounceOffPaddle(g, paddle, isPlayerSide) {
+function bounceOffPaddle(g: GameState, paddle: Paddle | AIPaddle, isPlayerSide: boolean): void {
   const rel = (g.ball.y - paddle.y) / (PADDLE_H / 2 + BALL_R); // -1..1 付近
   const angle = (rel * Math.PI) / 3.2; // 最大約56度（旧実装と同じ式）
   g.ball.speed = Math.min(g.ball.speed * BALL_SPEEDUP, MAX_BALL_SPEED); // ヒット毎に加速（上限あり）
@@ -93,7 +130,7 @@ function bounceOffPaddle(g, paddle, isPlayerSide) {
 }
 
 // ===== canvas 描画（旧 draw() を移植）=====
-export function drawGame(ctx, g) {
+export function drawGame(ctx: CanvasRenderingContext2D, g: GameState): void {
   ctx.fillStyle = "#000";
   ctx.fillRect(0, 0, W, H);
 
@@ -119,7 +156,7 @@ export function drawGame(ctx, g) {
 }
 
 // ===== ゲーム進行（旧 update() / updateBall() を移植）=====
-function updateBall(g, dt) {
+function updateBall(g: GameState, dt: number): Side | null {
   const b = g.ball;
   b.x += b.vx * dt;
   b.y += b.vy * dt;
@@ -157,7 +194,7 @@ function updateBall(g, dt) {
   return null;
 }
 
-export function stepGame(g, difficultyKey, dt) {
+export function stepGame(g: GameState, difficultyKey: DifficultyKey, dt: number): Side | null {
   const d = DIFFICULTIES[difficultyKey] || DIFFICULTIES.medium;
 
   updatePlayer(g, dt);
@@ -175,7 +212,7 @@ export function stepGame(g, difficultyKey, dt) {
 }
 
 // ゲームループ用：dt は60fpsフレーム相当（最大3をクランプ）
-export function stepSim(g, difficultyKey, now, lastTimeRef) {
+export function stepSim(g: GameState, difficultyKey: DifficultyKey, now: number, lastTimeRef: LastTimeRef): Side | null {
   const dt = Math.min((now - (lastTimeRef.current || now)) / (1000 / 60), 3);
   lastTimeRef.current = now;
   return stepGame(g, difficultyKey, dt);

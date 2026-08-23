@@ -1,4 +1,4 @@
-import PongGame from "./components/PongGame.jsx";
+import PongGame from "./components/PongGame";
 
 export default function App() {
   return (

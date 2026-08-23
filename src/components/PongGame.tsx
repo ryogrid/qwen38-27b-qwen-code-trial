@@ -1,23 +1,25 @@
 import { useEffect, useRef, useState } from "react";
-import { createGame, prepareServe, drawGame, stepSim } from "../game/createGame.js";
-import { setSoundEnabled } from "../game/sound.js";
-import { SCREENS, W, H, WIN_SCORE } from "../game/constants.js";
+import { createGame, prepareServe, drawGame, stepSim } from "../game/createGame";
+import type { GameState, Side } from "../game/createGame";
+import { setSoundEnabled } from "../game/sound";
+import { SCREENS, W, H, WIN_SCORE } from "../game/constants";
+import type { DifficultyKey, ScreenId } from "../game/constants";
 
-const LEVELS = [
+const LEVELS: [DifficultyKey, string][] = [
   ["easy", "EASY"],
   ["medium", "NORMAL"],
   ["hard", "HARD"],
 ];
 
 export default function PongGame() {
-  const canvasRef = useRef(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
   // StrictMode の二重呼び出しに備え、シミュレーションは最初の描画時に一度だけ生成する
-  const gameRef = useRef(null);
+  const gameRef = useRef<GameState | null>(null);
   if (!gameRef.current) gameRef.current = createGame();
 
-  const [screen, setScreen] = useState(SCREENS.MENU);
+  const [screen, setScreen] = useState<ScreenId>(SCREENS.MENU);
   const [scores, setScores] = useState({ player: 0, ai: 0 });
-  const [difficulty, setDifficulty] = useState("medium");
+  const [difficulty, setDifficulty] = useState<DifficultyKey>("medium");
   const [soundOn, setSoundOn] = useState(true);
 
   // ロジックの権威は scoresRef（副作用なしで同期更新）。
@@ -32,7 +34,7 @@ export default function PongGame() {
 
   // ゲーム開始（元実装の startGame と同一の手順）
   function startGame() {
-    const g = gameRef.current;
+    const g = gameRef.current!;
     scoresRef.current = { player: 0, ai: 0 };
     setScores({ player: 0, ai: 0 });
     g.player.y = H / 2;
@@ -50,15 +52,15 @@ export default function PongGame() {
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    const game = gameRef.current;
+    const ctx = canvas.getContext("2d")!;
+    const game = gameRef.current!;
 
     // 初回は current=0 → stepSim 内 `lastTimeRef.current || now` で dt=0（元実装の初フレーム挙動と同一）
     const lastTime = { current: 0 };
-    let rafId;
+    let rafId: number;
 
     // ポイント処理：stepGame の戻り値で判定（勝敗・次のサーブもここで制御）
-    function handlePoint(side) {
+    function handlePoint(side: Side) {
       const s = scoresRef.current;
       const next = { ...s, [side]: s[side] + 1 };
       scoresRef.current = next;
@@ -71,7 +73,7 @@ export default function PongGame() {
     }
 
     // ---- キーボード（元の script.js と同一の分岐）----
-    function onKeyDown(e) {
+    function onKeyDown(e: KeyboardEvent) {
       switch (e.key) {
         case "ArrowUp":
         case "w":
@@ -109,7 +111,7 @@ export default function PongGame() {
       }
     }
 
-    function onKeyUp(e) {
+    function onKeyUp(e: KeyboardEvent) {
       switch (e.key) {
         case "ArrowUp":
         case "w":
@@ -125,8 +127,8 @@ export default function PongGame() {
     }
 
     // ---- マウス（元の canvas mousemove と同一の計算式）----
-    function onMouseMove(e) {
-      const rect = canvas.getBoundingClientRect();
+    function onMouseMove(e: MouseEvent) {
+      const rect = canvas!.getBoundingClientRect();
       game.mouseY = ((e.clientY - rect.top) / rect.height) * H;
     }
 
@@ -135,7 +137,7 @@ export default function PongGame() {
     canvas.addEventListener("mousemove", onMouseMove);
 
     // ---- メインループ（元実装の frame() をそのまま反映）----
-    function frame(now) {
+    function frame(now: number) {
       rafId = requestAnimationFrame(frame);
       if (screenRef.current === SCREENS.PLAYING) {
         const side = stepSim(game, difficultyRef.current, now, lastTime);
@@ -156,7 +158,7 @@ export default function PongGame() {
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  function selectLevel(level) {
+  function selectLevel(level: DifficultyKey) {
     setDifficulty(level);
   }
 

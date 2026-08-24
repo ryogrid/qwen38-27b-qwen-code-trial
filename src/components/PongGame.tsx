@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { Game } from "../game/game";
 import type { Side } from "../game/game";
+import { PongScene } from "../render/PongScene";
 import { setSoundEnabled } from "../game/sound";
-import { SCREENS, W, H, WIN_SCORE } from "../game/constants";
+import { SCREENS, H, WIN_SCORE } from "../game/constants";
 import type { DifficultyKey, ScreenId } from "../game/constants";
 
 const LEVELS: [DifficultyKey, string][] = [
@@ -12,7 +13,7 @@ const LEVELS: [DifficultyKey, string][] = [
 ];
 
 export default function PongGame() {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   // StrictMode の二重呼び出しに備え、シミュレーションは最初の描画時に一度だけ生成する
   const gameRef = useRef<Game | null>(null);
   if (!gameRef.current) gameRef.current = new Game();
@@ -50,10 +51,15 @@ export default function PongGame() {
   }
 
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d")!;
+    const container = containerRef.current;
+    if (!container) return;
     const game = gameRef.current!;
+    // three.js シーン（この effect のライフサイクルに紐づく。StrictMode で dispose される）
+    const scene = new PongScene(container);
+
+    // コンテナサイズ追従（ウィンドウリサイズ等）
+    const ro = new ResizeObserver(() => scene.resize(container));
+    ro.observe(container);
 
     // 初回は current=0 → stepSim 内 `lastTimeRef.current || now` で dt=0（元実装の初フレーム挙動と同一）
     const lastTime = { current: 0 };
@@ -72,19 +78,19 @@ export default function PongGame() {
       }
     }
 
-    // ---- キーボード（元の script.js と同一の分岐）----
+    // ---- キーボード（左右移動に ←/→ と A/D）----
     function onKeyDown(e: KeyboardEvent) {
       switch (e.key) {
-        case "ArrowUp":
-        case "w":
-        case "W":
-          game.keys.up = true;
+        case "ArrowLeft":
+        case "a":
+        case "A":
+          game.keys.left = true;
           game.useMouseFollow = false;
           break;
-        case "ArrowDown":
-        case "s":
-        case "S":
-          game.keys.down = true;
+        case "ArrowRight":
+        case "d":
+        case "D":
+          game.keys.right = true;
           game.useMouseFollow = false;
           break;
         case "p":
@@ -101,7 +107,7 @@ export default function PongGame() {
           break;
         }
         case "Enter":
-          // 元実装: メニュー/ゲームオーバーで開始、ポーズ中のみ再開（プレイ中は無効）
+          // メニュー/ゲームオーバーで開始、ポーズ中のみ再開（プレイ中は無効）
           if (screenRef.current === SCREENS.MENU || screenRef.current === SCREENS.GAMEOVER) {
             startGame();
           } else if (screenRef.current === SCREENS.PAUSED) {
@@ -113,40 +119,41 @@ export default function PongGame() {
 
     function onKeyUp(e: KeyboardEvent) {
       switch (e.key) {
-        case "ArrowUp":
-        case "w":
-        case "W":
-          game.keys.up = false;
+        case "ArrowLeft":
+        case "a":
+        case "A":
+          game.keys.left = false;
           break;
-        case "ArrowDown":
-        case "s":
-        case "S":
-          game.keys.down = false;
+        case "ArrowRight":
+        case "d":
+        case "D":
+          game.keys.right = false;
           break;
       }
     }
 
-    // ---- マウス（元の canvas mousemove と同一の計算式）----
+    // ---- マウス（左右位置 → パドルの移動軸 sim.y へ変換）----
     function onMouseMove(e: MouseEvent) {
-      const rect = canvas!.getBoundingClientRect();
-      game.mouseY = ((e.clientY - rect.top) / rect.height) * H;
+      const rect = container!.getBoundingClientRect();
+      game.mouseY = ((e.clientX - rect.left) / rect.width) * H;
     }
 
     window.addEventListener("keydown", onKeyDown);
     window.addEventListener("keyup", onKeyUp);
-    canvas.addEventListener("mousemove", onMouseMove);
+    container.addEventListener("mousemove", onMouseMove);
 
-    // ---- メインループ（元実装の frame() をそのまま反映）----
+    // ---- メインループ（元実装の frame() と同一の構造）----
     function frame(now: number) {
       rafId = requestAnimationFrame(frame);
-      if (screenRef.current === SCREENS.PLAYING) {
+      const playing = screenRef.current === SCREENS.PLAYING;
+      if (playing) {
         const side = game.stepSim(difficultyRef.current, now, lastTime);
         if (side) handlePoint(side);
       } else {
         // 非プレイ中はステップしないが時刻は最新に保つ（元実装: lastTime は毎フレーム更新）
         lastTime.current = now;
       }
-      game.draw(ctx);
+      scene.update(game, now, playing);
     }
     rafId = requestAnimationFrame(frame);
 
@@ -154,7 +161,9 @@ export default function PongGame() {
       cancelAnimationFrame(rafId);
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
-      canvas.removeEventListener("mousemove", onMouseMove);
+      container.removeEventListener("mousemove", onMouseMove);
+      ro.disconnect();
+      scene.dispose();
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -174,7 +183,7 @@ export default function PongGame() {
           <span className="ai-score">{scores.ai}</span>
         </header>
 
-        <canvas ref={canvasRef} width={W} height={H}></canvas>
+        <div ref={containerRef} className="gl-stage"></div>
 
         <section className={"overlay" + (inMenu ? " visible" : "")}>
           <h1>PONG</h1>
@@ -214,7 +223,7 @@ export default function PongGame() {
         </section>
 
         <footer className="help">
-          <span>&#8593;/&#8595; や W/S で移動</span>
+          <span>&#8592;/&#8594; や A/D で移動</span>
           <i>|</i>
           <span>マウスもOK</span>
           <i>|</i>

@@ -41,14 +41,18 @@ body {
   letter-spacing: 8px;
 }
 
-/* ===== キャンバス ===== */
-canvas {
+/* ===== 3D ステージ（three.js）===== */
+.gl-stage {
   display: block;
   width: 100%;
   height: calc(100% - 2.5em);
-  background: #000;
+  background: #0a0a0a;
   border-top: 3px solid #f4f4f4;
   cursor: none;
+}
+
+.gl-stage canvas {
+  display: block;
 }
 
 /* ===== オーバーレイ共通 ===== */

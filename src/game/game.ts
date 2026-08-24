@@ -36,12 +36,12 @@ export class Game {
   serveTimer: number; // ボール発射までの待機フレーム数（<=0 で launchBall）
   serveDir: number; // 次のサーブ方向（-1=プレイヤー側 / +1=AI側）
   aiErrOff: number; // AI の追跡誤差（サーブごとに乱数化）
-  keys = { up: false, down: false };
-  mouseY = H / 2; // 直近のマウス y（キャンバス座標）
+  keys = { left: false, right: false };
+  mouseY = H / 2; // 直近のマウス位置（パドル移動軸のシム座標）
   useMouseFollow = true; // 移動キーで操作するとキー優先に切り替わる
 
   constructor() {
-    // 新しいゲーム状態を作成（canvas 1つにつき1つのインスタンス）
+    // 新しいゲーム状態を作成（ステージ 1つにつき1つのインスタンス）
     this.player = new Paddle();
     this.ai = new AIPaddle();
     this.ball = new Ball();
@@ -80,32 +80,6 @@ export class Game {
     return this.step(difficultyKey, dt);
   }
 
-  // ===== canvas 描画（旧 draw() を移植）=====
-  draw(ctx: CanvasRenderingContext2D): void {
-    ctx.fillStyle = "#000";
-    ctx.fillRect(0, 0, W, H);
-
-    // 中央の点線
-    ctx.strokeStyle = "rgba(255, 255, 255, 0.35)";
-    ctx.lineWidth = 4;
-    ctx.setLineDash([12, 16]);
-    ctx.beginPath();
-    ctx.moveTo(W / 2, 0);
-    ctx.lineTo(W / 2, H);
-    ctx.stroke();
-    ctx.setLineDash([]);
-
-    // パドル
-    ctx.fillStyle = "#f4f4f4";
-    ctx.fillRect(PX, this.player.y - PADDLE_H / 2, PADDLE_W, PADDLE_H);
-    ctx.fillRect(AX, this.ai.y - PADDLE_H / 2, PADDLE_W, PADDLE_H);
-
-    // ボール（待機中は中央に静止表示）
-    ctx.beginPath();
-    ctx.arc(this.ball.x, this.ball.y, BALL_R, 0, Math.PI * 2);
-    ctx.fill();
-  }
-
   private launchBall(d: DifficultyDef): void {
     const angle = (Math.random() * 2 - 1) * SERVE_ANGLE_MAX; // ±36度以内
     this.aiErrOff = (Math.random() * 2 - 1) * d.error;
@@ -115,9 +89,10 @@ export class Game {
 
   private updatePlayer(dt: number): void {
     const speed = PLAYER_SPEED * dt;
-    if (this.keys.up) this.player.y -= speed;
-    if (this.keys.down) this.player.y += speed;
-    if (!this.keys.up && !this.keys.down && this.useMouseFollow) {
+    // 移動軸はシムの y（3D では左右 X）。left = sim.y 減少側、right = 増加側
+    if (this.keys.left) this.player.y -= speed;
+    if (this.keys.right) this.player.y += speed;
+    if (!this.keys.left && !this.keys.right && this.useMouseFollow) {
       // キー操作がない間はマウス位置へ追従（キーで操作した後は無効）
       this.player.y += (this.mouseY - this.player.y) * Math.min(1, MOUSE_FOLLOW_LERP * dt);
     }

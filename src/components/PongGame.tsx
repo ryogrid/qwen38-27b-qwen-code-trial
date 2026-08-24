@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { createGame, prepareServe, drawGame, stepSim } from "../game/createGame";
-import type { GameState, Side } from "../game/createGame";
+import { Game } from "../game/game";
+import type { Side } from "../game/game";
 import { setSoundEnabled } from "../game/sound";
 import { SCREENS, W, H, WIN_SCORE } from "../game/constants";
 import type { DifficultyKey, ScreenId } from "../game/constants";
@@ -14,8 +14,8 @@ const LEVELS: [DifficultyKey, string][] = [
 export default function PongGame() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   // StrictMode の二重呼び出しに備え、シミュレーションは最初の描画時に一度だけ生成する
-  const gameRef = useRef<GameState | null>(null);
-  if (!gameRef.current) gameRef.current = createGame();
+  const gameRef = useRef<Game | null>(null);
+  if (!gameRef.current) gameRef.current = new Game();
 
   const [screen, setScreen] = useState<ScreenId>(SCREENS.MENU);
   const [scores, setScores] = useState({ player: 0, ai: 0 });
@@ -40,7 +40,7 @@ export default function PongGame() {
     g.player.y = H / 2;
     g.ai.y = H / 2;
     g.useMouseFollow = true;
-    prepareServe(g); // dir なし → ランダム方向でサーブ準備
+    g.prepareServe(); // dir なし → ランダム方向でサーブ準備
     setScreen(SCREENS.PLAYING);
   }
 
@@ -68,7 +68,7 @@ export default function PongGame() {
       if (next[side] >= WIN_SCORE) {
         setScreen(SCREENS.GAMEOVER);
       } else {
-        prepareServe(game, side === "player" ? 1 : -1);
+        game.prepareServe(side === "player" ? 1 : -1);
       }
     }
 
@@ -140,13 +140,13 @@ export default function PongGame() {
     function frame(now: number) {
       rafId = requestAnimationFrame(frame);
       if (screenRef.current === SCREENS.PLAYING) {
-        const side = stepSim(game, difficultyRef.current, now, lastTime);
+        const side = game.stepSim(difficultyRef.current, now, lastTime);
         if (side) handlePoint(side);
       } else {
         // 非プレイ中はステップしないが時刻は最新に保つ（元実装: lastTime は毎フレーム更新）
         lastTime.current = now;
       }
-      drawGame(ctx, game);
+      game.draw(ctx);
     }
     rafId = requestAnimationFrame(frame);
 

@@ -1,7 +1,13 @@
 // ===== three.js シーン構築と毎フレーム更新（3D 描画層）=====
 import * as THREE from "three";
-import type { Game } from "../game/game";
 import { W, H, PADDLE_W, PADDLE_H, BALL_R, PX, AX } from "../game/constants";
+
+// シーンが読むシムの最小構造（Game / wasmSim の両方が適合する）
+interface SimView {
+  player: { y: number };
+  ai: { y: number };
+  ball: { x: number; y: number; vx: number; vy: number };
+}
 
 // シミュレーション座標 → ワールド座標のマッピング
 // worldX = sim.y - H/2（左右）、worldZ = W/2 - sim.x（奥行き）
@@ -145,7 +151,7 @@ export class PongScene {
   }
 
   // 毎フレーム呼び出し（メニュー中も呼ぶので、テーブルは常時表示される）
-  update(game: Game, now: number, playing: boolean): void {
+  update(game: SimView, now: number, playing: boolean): void {
     const g = game;
 
     // パドル位置（移動軸 = シムの y → ワールド X。z は固定）

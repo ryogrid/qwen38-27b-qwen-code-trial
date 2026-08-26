@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { Game } from "../game/game";
-import type { Side } from "../game/game";
+import { WasmGame } from "../game/wasmSim";
+import type { Side } from "../game/wasmSim";
 import { PongScene } from "../render/PongScene";
 import { setSoundEnabled } from "../game/sound";
 import { SCREENS, H, WIN_SCORE } from "../game/constants";
@@ -15,8 +15,8 @@ const LEVELS: [DifficultyKey, string][] = [
 export default function PongGame() {
   const containerRef = useRef<HTMLDivElement>(null);
   // StrictMode の二重呼び出しに備え、シミュレーションは最初の描画時に一度だけ生成する
-  const gameRef = useRef<Game | null>(null);
-  if (!gameRef.current) gameRef.current = new Game();
+  const gameRef = useRef<WasmGame | null>(null);
+  if (!gameRef.current) gameRef.current = new WasmGame();
 
   const [screen, setScreen] = useState<ScreenId>(SCREENS.MENU);
   const [scores, setScores] = useState({ player: 0, ai: 0 });
@@ -38,8 +38,7 @@ export default function PongGame() {
     const g = gameRef.current!;
     scoresRef.current = { player: 0, ai: 0 };
     setScores({ player: 0, ai: 0 });
-    g.player.y = H / 2;
-    g.ai.y = H / 2;
+    g.centerPaddles(); // 両パドルを中央に戻す（wasm シム内）
     g.useMouseFollow = true;
     g.prepareServe(); // dir なし → ランダム方向でサーブ準備
     setScreen(SCREENS.PLAYING);

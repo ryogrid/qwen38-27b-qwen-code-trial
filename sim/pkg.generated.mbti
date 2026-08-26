@@ -1,0 +1,39 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "internal/sim"
+
+// Values
+pub const EV_PADDLE_HIT : Int = 1
+
+pub const EV_POINT_AI : Int = 8
+
+pub const EV_POINT_PLAYER : Int = 4
+
+pub const EV_WALL : Int = 2
+
+pub fn ai_y() -> Double
+
+pub fn ball_x() -> Double
+
+pub fn ball_y() -> Double
+
+pub fn center_paddles() -> Unit
+
+pub fn player_y() -> Double
+
+pub fn prepare_serve(Double) -> Unit
+
+pub fn seed(Int) -> Unit
+
+pub fn step(Int, Double, Bool, Bool, Double, Bool) -> Int
+
+pub fn vx() -> Double
+
+pub fn vy() -> Double
+
+// Errors
+
+// Types and methods
+
+// Type aliases
+
+// Traits

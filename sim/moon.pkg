@@ -1,0 +1,22 @@
+import {
+  "moonbitlang/core/math",
+}
+
+options(
+  link: {
+    "wasm": {
+      "exports": [
+        "step",
+        "seed",
+        "prepare_serve",
+        "center_paddles",
+        "ball_x",
+        "ball_y",
+        "player_y",
+        "ai_y",
+        "vx",
+        "vy",
+      ],
+    },
+  },
+)

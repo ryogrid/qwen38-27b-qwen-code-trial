@@ -79,7 +79,9 @@ function compileViaWorker(): Promise<SimExports> {
       }
       (async () => {
         // import 0 / export のみ。_start があれば初期化してから使う
-        const instance = new WebAssembly.Instance(res.wasmBytes, {});
+        const bytes = new Uint8Array(res.wasmBytes); // 新しい ArrayBuffer へコピー（BufferSource として確実に使える）
+        const mod = new WebAssembly.Module(bytes);
+        const instance = new WebAssembly.Instance(mod, {});
         const ex = instance.exports as unknown as SimExports;
         if (typeof ex._start === "function") ex._start();
         resolve(ex);
@@ -131,14 +133,21 @@ export class WasmGame {
   }
 
   private init(): Promise<void> {
-    return loadWasm().then((ex) => {
-      this.ex = ex;
-      if (this.pendingServeDir !== null) {
-        ex.prepare_serve(this.pendingServeDir); // 読み込み待ちのサーブをここに適用
-        this.pendingServeDir = null;
-      }
-      this.sync();
-    });
+    return (
+      loadWasm()
+        .then((ex) => {
+          this.ex = ex;
+          if (this.pendingServeDir !== null) {
+            ex.prepare_serve(this.pendingServeDir); // 読み込み待ちのサーブをここに適用
+            this.pendingServeDir = null;
+          }
+          this.sync();
+        })
+        .catch((err) => {
+          // 失敗は loadWasm が既にログ出力済み。ここで握りつぶさないと未処理リジェクションになる
+          console.error("[wasmSim] シムの読み込みに失敗したためゲームを開始できません:", err);
+        })
+    );
   }
 
   // 決定的リプレイ用のシード固定（0 は sim.mbt 側でデフォルトに置換される）

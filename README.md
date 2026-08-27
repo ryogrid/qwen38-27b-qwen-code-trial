@@ -30,11 +30,10 @@ Pong（1P vs CPU）。ゲームのシミュレーションは MoonBit で記述�
 
 ### LMStudioの設定補足
 
-![LMStudio-img1](https://gist.github.com/user-attachments/assets/0e816999-00dd-4880-8b05-7e6c2bad009d)
-![LMStudio-img2](https://gist.github.com/user-attachments/assets/226a9153-b2cc-48a1-826c-9fce730b6b24)
+<img width="339" height="793" alt="image" src="https://github.com/user-attachments/assets/2de4f3ac-d90f-49b5-b9eb-5d77a1074dfb" />
+<img width="334" height="712" alt="image" src="https://github.com/user-attachments/assets/7dbef7bf-83a7-45ac-9708-b8fbbe94552b" />
 
-<img width="339" height="793" alt="image" src="https://gist.github.com/user-attachments/assets/0e816999-00dd-4880-8b05-7e6c2bad009d" />
-<img width="334" height="712" alt="image" src="https://gist.github.com/user-attachments/assets/226a9153-b2cc-48a1-826c-9fce730b6b24" />
+
 
 ## ソフトウェアスタック
 

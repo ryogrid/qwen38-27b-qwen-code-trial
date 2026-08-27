@@ -1,8 +1,28 @@
 ﻿# qwen38-27b-<del>qwen-code</del>open-code-trial
 
-[Xでのpost](https://x.com/ryo_grid/status/2091679529576374707)
+[Xでのpost](https://x.com/ryo_grid/status/2092849827814257130)
 
 Pong（1P vs CPU）。ゲームのシミュレーションは MoonBit で記述し WebAssembly にコンパイルして走らせ、その wasm は **ブラウザ内で実行時にコンパイル**（Web Worker 内の `moonc-web`）するため、ビルド環境に MoonBit ツールチェインは不要です。
+## 実装環境（ローカル LLM）
+
+本プロジェクトのコードは、**LMStudio（llama.cpp）** で **Qwen3.8 27B** を動作させることでローカルLLM環境を構築し、同LLMに **OpenCode（≠ Qwen Code CLI)** を動作させ実装しました。
+
+- **LLMモデル**: [jrell/Qwen3.8-27B-i1-IQ4_XS-GGUF-Smaller](https://huggingface.co/jrell/Qwen3.8-27B-i1-IQ4_XS-GGUF-Smaller)
+- **OS / ハードウェア**: Windows 11（非 WSL 環境）/ Ryzen 7 5700X 物理8コア（論理16コア）/ 主記憶 64GB（8-16GBあれば十分な気がします） / Radeon RX 9060 XT 16GB
+  - LMStudio も OpenCode もネイティブのWindows11上 で動作
+  - Windows11 は Pro 25H2 OSビルド 26200.9168
+    - WSL2を使ったりもしていないので、Windows11のエディションはHomeなどでも問題ないはずです
+- **LLMランナー/サーバ**: LM Studio v0.4.21
+  - ROCm （llama.cpp）Windows ランタイム v2.29.1
+    - Vulkanランタイムでもおそらく動作し、ほぼ同等のパフォーマンスになる気がします
+  - KV Cache: Q4_0
+  - MTP 有効（Max draft token 数 3）
+  - Physical Batch Size / Evaluation Batch Size: 1024
+  - コンテキスト長: 64k
+  - Thinking Budget: 2048
+- **コーディングエージェント**: OpenCode v1.18.23
+  - OpenCodeはPowerShell内で作業をしました（しています）
+    - PowerShellのシェル芸もできるのはすごいですね^^
 
 ## ソフトウェアスタック
 
@@ -45,21 +65,3 @@ npm run dev   # http://localhost:5173 （初回のみ wasm コンパイルに数
 ```
 
 その他のコマンドは AGENTS.md を参照のこと。
-
-## 実装環境（ローカル LLM）
-
-本プロジェクトのコードは、**LMStudio（llama.cpp）** で **Qwen3.8 27B** を動作させることでローカルLLM環境を構築し、その上で **OpenCode（≠ Qwen Code CLI)** を動作させ実装しました。
-
-- **LLMモデル**: [jrell/Qwen3.8-27B-i1-IQ4_XS-GGUF-Smaller](https://huggingface.co/jrell/Qwen3.8-27B-i1-IQ4_XS-GGUF-Smaller)
-- **OS / ハードウェア**: Windows 11（非 WSL 環境）/ Radeon RX 9060 XT 16GB
-  - LMStudio も OpenCode もネイティブのWindows11上 で動作
-  - OpenCodeはPowerShell内で作業をしました（しています）
-    - PowerShellのシェル芸もできるのはすごいですね^^
-- **LLMランナー/サーバ**: LM Studio
-  - ROCm ランタイム
-    - Vulkanランタイムでもおそらく動作し、ほぼ同等のパフォーマンスになる気がします
-  - KV Cache: Q4_0
-  - MTP 有効（Max draft token 数 3）
-  - Physical Batch Size / Evaluation Batch Size: 1024
-  - コンテキスト長: 64k
-  - Thinking Budget: 2048

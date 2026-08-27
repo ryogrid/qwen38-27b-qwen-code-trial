@@ -51,6 +51,36 @@ const AX_D : Double = W_D - 26.0 - PADDLE_W_D // AIパドル左端（=860）
 ///|
 const SERVE_ANGLE_MAX_D : Double = @math.PI / 5.0
 
+// ===== A: スピン／マグヌス効果の調整値（px/フレーム@60fps 基準。既存速度定数と同一単位） =====
+
+///|
+const SPIN_TRANSFER_D : Double = 0.19 // パドル接触時の「パドル速度→スピン」換算ゲイン
+
+///|
+const SPIN_MAX_D : Double = 1.5 // |spin| の上限（付与時にクランプ）
+
+///|
+const SPIN_SOURCE_MAX_D : Double = 12.0 // スピンの入力源として扱うパドル速度の上限（px/フレーム、マウス急動を飽和させる）
+
+///|
+const MAGNUS_K_D : Double = 0.005 // マグヌス回転率係数：毎フレーム velocity 方向をこれ*spin ラジアンだけ回転
+
+///|
+const SPIN_DECAY_RATE_D : Double = 0.004 // 飛行中のスピン減衰率（除算形で dt 大でも安定。半減≈2.9秒）
+
+///|
+const WALL_SPIN_KEEP_D : Double = 0.8 // 上下壁リバウンド時のスピン残存率
+
+// ===== E: 重力乱流の調整値 =====
+
+///|
+const TURB_MAX_GY_D : Double = 0.06 // 最大乱流加速度 px/フレーム^2（@60fps 基準。正=画面下へ引く）
+                                             // 貫通時間≈130フレームで積算すると Δvy≲8px/f・横ブレ≲70px 程度に収まり、
+                                             // ボール速度を支配せず（MAX_BALL_SPEED クランプが効きすぎない）曲がりとして感じられる
+
+///|
+const TURB_OMEGA_D : Double = 0.035 // 乱流位相の毎フレーム進み具合（キャリア周期≈3秒、嵐ウィンドウ≈27秒）
+
 ///|
 // ===== RNG（決定的 xorshift32。seed() でシード固定可） =====
 
@@ -86,6 +116,10 @@ priv struct Sim {
   mut vx : Double // 水平速度
   mut vy : Double // 垂直速度
   mut speed : Double // ボール現在速度（パドル当たりで加速）
+  mut spin : Double // ボールの回転（マグヌス効果。+ は右進ボールを下画面側へ曲げる）
+  mut player_vel : Double // プレイヤーパドルの直前フレーム速度 px/フレーム@60fps（スピン付与用）
+  mut ai_vel : Double // AI パドルの直前フレーム速度 px/フレーム@60fps（スピン付与用）
+  mut turb_phase : Double // 乱流位相（E。毎ステップ決定的に前進、rng は消費しない）
   mut player_y : Double // プレイヤーパドル中心 y
   mut ai_y : Double // AI パドル中心 y
   mut serve_timer : Double // ボール発射までの待機フレーム（<=0 で launch）
@@ -108,6 +142,10 @@ fn make_sim() -> Sim {
     vx: 0.0,
     vy: 0.0,
     speed: BASE_BALL_SPEED_D,
+    spin: 0.0,
+    player_vel: 0.0,
+    ai_vel: 0.0,
+    turb_phase: 0.0, // ゲーム開始時は凪から嵐へ（storm 包絡が 0 から立ち上がる）
     player_y: H_D / 2,
     ai_y: H_D / 2,
     serve_timer: 0.0, // TS コンストラクタも 0（実際の待機は prepareServe で開始）
@@ -144,6 +182,12 @@ pub fn seed(s : Int) -> Unit {
       s.reinterpret_as_uint()
     },
   )
+  // A/E: 同じシードから同じ「天候・スピン」の状態を再現するため、
+  // 前回実行の残り（リプレイ再開・テスト間の分離）を初期値に戻す
+  g.spin = 0.0
+  g.player_vel = 0.0
+  g.ai_vel = 0.0
+  g.turb_phase = 0.0
 }
 
 ///|
@@ -154,6 +198,7 @@ pub fn prepare_serve(dir : Double) -> Unit {
   g.vx = 0.0
   g.vy = 0.0
   g.speed = BASE_BALL_SPEED_D // resetToCenter() は speed も BASE に戻す（旧実装と同一）
+  g.spin = 0.0 // ポイント毎にスピンは持ち越さない
   g.serve_timer = SERVE_DELAY_FRAMES_D
   g.serve_dir = if dir == 0.0 {
     if rnd() < 0.5 {
@@ -210,6 +255,7 @@ pub fn step(
   let ai_speed_ = if idx == 0 { 3.4 } else if idx == 2 { 6.4 } else { 4.6 }
   let ai_error_ = if idx == 0 { 52.0 } else if idx == 2 { 10.0 } else { 28.0 }
 
+  update_weather(dt) // E: サーブ待機中も天候は進む（ポイント間の間欠でも連続する）
   update_player(dt, key_left, key_right, mouse_y, use_mouse_follow)
   update_ai(ai_speed_, dt)
 
@@ -253,6 +299,34 @@ pub fn vx() -> Double {
 ///|
 pub fn vy() -> Double {
   g.vy
+}
+
+// 現在の球のスピン（+ は右進ボールを画面下側へ曲げる）。レンダリング演出用。
+
+///|
+pub fn spin() -> Double {
+  g.spin
+}
+
+// 乱流の位相を前進させる（step の先頭で毎フレーム呼ぶ）
+
+fn update_weather(dt : Double) -> Unit {
+  g.turb_phase += TURB_OMEGA_D * dt
+}
+
+// 現在の乱流重力 px/フレーム^2（正=画面下へ引く）。レンダリングは gravity_y() で読む。
+// 嵐包絡（≈27秒周期）がキャリア 2 成分を緩慢に変調する有界な突風列。
+// rng を消費しないため天候はシードに依存しない（位相のみで決まる）。
+
+fn current_gy() -> Double {
+  let phase = g.turb_phase
+  let storm = 0.5 - 0.5 * @math.cos(0.11 * phase)
+  TURB_MAX_GY_D * storm * (0.62 * @math.sin(phase) + 0.38 * @math.sin(1.7 * phase + 2.4))
+}
+
+///|
+pub fn gravity_y() -> Double {
+  current_gy()
 }
 
 // スコア読み取り（JS 側は表示のみ。権威はこのモジュール側）
@@ -299,6 +373,7 @@ fn update_player(
   mouse_y : Double,
   use_mouse_follow : Bool,
 ) -> Unit {
+  let old_y = g.player_y
   let speed = PLAYER_SPEED_D * dt
   // left = sim.y 減少側、right = 増加側（3D では左右 X）
   if key_left {
@@ -313,11 +388,18 @@ fn update_player(
     g.player_y += (mouse_y - g.player_y) * (if k < 1.0 { k } else { 1.0 })
   }
   g.player_y = clamp_paddle_y(g.player_y)
+  // スピン付与用の速度（px/フレーム@60fps 基準。dt=0 の初回は静止扱い）
+  if dt > 0.0 {
+    g.player_vel = (g.player_y - old_y) / dt
+  } else {
+    g.player_vel = 0.0
+  }
 }
 
 ///|
 fn update_ai(ai_speed_ : Double, dt : Double) -> Unit {
   // ボールが AI 側へ来ている間だけ追跡、そうでなければ中央に戻る
+  let old_y = g.ai_y
   let mut target_y : Double = H_D / 2
   if g.serve_timer <= 0 && g.vx > 0 {
     target_y = g.ball_y + g.ai_err_off
@@ -331,6 +413,12 @@ fn update_ai(ai_speed_ : Double, dt : Double) -> Unit {
     g.ai_y += (if dy > 0.0 { 1.0 } else { -1.0 }) * max_step
   }
   g.ai_y = clamp_paddle_y(g.ai_y)
+  // スピン付与用の速度（px/フレーム@60fps 基準。dt=0 の初回は静止扱い）
+  if dt > 0.0 {
+    g.ai_vel = (g.ai_y - old_y) / dt
+  } else {
+    g.ai_vel = 0.0
+  }
 }
 
 ///|
@@ -342,10 +430,22 @@ fn abs_d(x : Double) -> Double {
   }
 }
 
-// パドル反発：当たった位置で反射角を決め、やや加速（上限あり）
+// 数値クランプ（スピン等の有界化に使う）
+
+///|
+fn clamp_d(x : Double, lo : Double, hi : Double) -> Double {
+  if x < lo {
+    lo
+  } else if x > hi {
+    hi
+  } else {
+    x
+  }
+}
 
 ///|
 fn bounce_off_paddle(pad_y : Double, is_player_side : Bool) -> Unit {
+  // パドル反発：当たった位置で反射角を決め、やや加速（上限あり）
   let rel = (g.ball_y - pad_y) / (PADDLE_H_D / 2 + BALL_R_D) // -1..1 付近
   let angle = rel * @math.PI / 3.2 // 最大約56度（旧実装と同じ式）
   let sp = g.speed * BALL_SPEEDUP_D
@@ -353,6 +453,12 @@ fn bounce_off_paddle(pad_y : Double, is_player_side : Bool) -> Unit {
   let dir : Double = if is_player_side { 1.0 } else { -1.0 }
   g.vx = @math.cos(angle) * g.speed * dir
   g.vy = @math.sin(angle) * g.speed
+  // A: スピン付与 — その場で動いているパドルがボールを「こする」ほどスピンが増す。
+  // マウス急動（1フレームで数百px跳ぶ場合がある）は SPIN_SOURCE_MAX_D で飽和させ、
+  // 結果を ±SPIN_MAX_D にクランプして有界にする。
+  let pad_v : Double = if is_player_side { g.player_vel } else { g.ai_vel }
+  let src = clamp_d(pad_v, -SPIN_SOURCE_MAX_D, SPIN_SOURCE_MAX_D)
+  g.spin = clamp_d(src * SPIN_TRANSFER_D, -SPIN_MAX_D, SPIN_MAX_D)
 }
 
 // ポイント後のサーブ発射（launchBall）。ai_err_off はここで乱数化する
@@ -368,6 +474,33 @@ fn launch_ball(ai_error_ : Double) -> Unit {
 ///|
 fn update_ball(dt : Double) -> Int {
   let mut ev : Int = 0
+
+  // A: マグヌス効果 — 速度の「方向」だけ回転させる（大きさは不変なので MAX_BALL_SPEED_D はそのまま有効）。
+  // スピンの符号は付与側と同一規約：+spin は右進ボールを画面下側へ曲げる。
+  if g.spin != 0.0 {
+    let theta = MAGNUS_K_D * g.spin * dt
+    let c = @math.cos(theta)
+    let s_ = @math.sin(theta)
+    let nvx = g.vx * c - g.vy * s_
+    let nvy = g.vx * s_ + g.vy * c
+    g.vx = nvx
+    g.vy = nvy
+  }
+  // スピンは飛行中に減衰（除数形式なので dt が大きくても安定。半減≈2.9秒）
+  if g.spin != 0.0 {
+    g.spin /= 1.0 + SPIN_DECAY_RATE_D * dt
+  }
+
+  // E: 重力乱流を加速度として適用（px/フレーム^2）。突風が速度を MAX_BALL_SPEED_D まで
+  // 押し上げうるため、適用後に合成速度でクランプしてトンネリング・暴発を防ぐ。
+  g.vy += current_gy() * dt
+  let sp_now = (g.vx * g.vx + g.vy * g.vy).sqrt()
+  if sp_now > MAX_BALL_SPEED_D {
+    let k = MAX_BALL_SPEED_D / sp_now
+    g.vx *= k
+    g.vy *= k
+  }
+
   g.ball_x += g.vx * dt
   g.ball_y += g.vy * dt
 
@@ -375,10 +508,12 @@ fn update_ball(dt : Double) -> Int {
   if g.ball_y - BALL_R_D <= 0.0 && g.vy < 0.0 {
     g.ball_y = BALL_R_D
     g.vy = -g.vy
+    g.spin *= WALL_SPIN_KEEP_D // 壁面ですり減らす（有界化）
     ev = ev | EV_WALL
   } else if g.ball_y + BALL_R_D >= H_D && g.vy > 0.0 {
     g.ball_y = H_D - BALL_R_D
     g.vy = -g.vy
+    g.spin *= WALL_SPIN_KEEP_D // 壁面ですり減らす（有界化）
     ev = ev | EV_WALL
   }
 

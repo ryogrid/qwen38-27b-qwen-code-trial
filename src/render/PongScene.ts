@@ -1,12 +1,13 @@
 // ===== three.js シーン構築と毎フレーム更新（3D 描画層）=====
 import * as THREE from "three";
-import { W, H, PADDLE_W, PADDLE_H, BALL_R, PX, AX } from "../game/constants";
+import { W, H, PADDLE_W, PADDLE_H, BALL_R, PX, AX, TURB_MAX_G } from "../game/constants";
 
-// シーンが読むシムの最小構造（Game / wasmSim の両方が適合する）
+// シーンが読むシムの最小構造（wasmSim の WasmGame が適合する）
 interface SimView {
   player: { y: number };
   ai: { y: number };
-  ball: { x: number; y: number; vx: number; vy: number };
+  ball: { x: number; y: number; vx: number; vy: number; spin: number };
+  gravityY: number; // 現在の乱流重力 px/フレーム^2（+ は sim.y 増加側へ引く）。描画のみ
 }
 
 // シミュレーション座標 → ワールド座標のマッピング
@@ -22,6 +23,8 @@ function toWorldZ(simX: number): number {
 // Y バウンド演出（見た目専用：シミュレーションには一切影響しない）
 const BOUNCE_AMP = 26; // バウンド高さ（ワールド単位）
 const HOP_PERIOD_FRAMES = 18; // ホップ周期（約0.3秒 / 60fps 基準）
+// スピン可視化の回転速度（見た目専用。spin=1 での rad/フレーム相当）
+const SPIN_VIS_RATE = 0.5;
 
 // パドルメッシュの高さ（装飾用。シムの PADDLE_W/H は X/Z 方向の寸法に使う）
 const PADDLE_MESH_H = 18;
@@ -31,8 +34,11 @@ export class PongScene {
   private readonly scene: THREE.Scene;
   private readonly camera: THREE.PerspectiveCamera;
   private readonly ballMesh: THREE.Mesh;
+  private readonly ballSeamMat: THREE.MeshStandardMaterial; // スピンを可視化するボール表面のマーカー素材
   private readonly playerMesh: THREE.Mesh;
   private readonly aiMesh: THREE.Mesh;
+  private readonly windGroup: THREE.Group; // E: 乱流の吹き出し表示（テーブル上・装飾のみ）
+  private readonly windMat: THREE.MeshStandardMaterial;
   private hopPhase = 0; // Y バウンド演出の位相（0..1）
   private prevInFlight = false; // サーブ開始時に位相をリセットするための前フレーム状態
   private lastNow = 0;
@@ -122,7 +128,31 @@ export class PongScene {
       new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.35 }),
     );
     this.ballMesh.castShadow = true;
+    // A: ボール表面の「シーム」（子メッシュ）。球体を回転させるだけでスピンが視認できる
+    const seamGeo = new THREE.SphereGeometry(BALL_R * 0.3, 16, 8);
+    this.ballSeamMat = new THREE.MeshStandardMaterial({ color: 0x2b4d74, roughness: 0.5 });
+    for (const [sx, sy] of [
+      [BALL_R * 0.7, BALL_R * 0.3],
+      [-BALL_R * 0.7, -BALL_R * 0.3],
+    ] as const) {
+      const seam = new THREE.Mesh(seamGeo, this.ballSeamMat);
+      seam.position.set(sx, sy, 0);
+      this.ballMesh.add(seam);
+    }
     this.scene.add(this.ballMesh);
+
+    // E: 乱流の吹き出し（テーブル上・手前側に固定。+gravityY は +X / sim.y増加側へ吹く）
+    this.windGroup = new THREE.Group();
+    this.windMat = new THREE.MeshStandardMaterial({ color: 0x7fdfff, transparent: true, opacity: 0.5 });
+    const windShaft = new THREE.Mesh(new THREE.BoxGeometry(86, 3, 5), this.windMat);
+    windShaft.position.x = 43; // グループ原点（矢じり側の尾）を軸に scale.x で伸び縮みする
+    const windHead = new THREE.Mesh(new THREE.ConeGeometry(7, 24, 12), this.windMat);
+    windHead.rotation.z = -Math.PI / 2; // コーンの +Y を +X（矢じりの先）へ向ける
+    windHead.position.x = 98;
+    this.windGroup.add(windShaft, windHead);
+    this.windGroup.position.set(0, 3, 210); // ネット（z=0）とプレイヤーパドル（z≈+417）の間
+    this.windGroup.visible = false;
+    this.scene.add(this.windGroup);
 
     // パドル（X 方向に長さ PADDLE_H、奥行き PADDLE_W。z はシムの PX/AX から固定）
     const paddleGeo = new THREE.BoxGeometry(PADDLE_H, PADDLE_MESH_H, PADDLE_W);
@@ -161,22 +191,34 @@ export class PongScene {
     // ボール位置（シム x → 奥行き Z、シム y → 左右 X）
     const b = g.ball;
     const inFlight = b.vx !== 0 || b.vy !== 0;
+    const dtF = Math.min(Math.max((now - this.lastNow) / (1000 / 60), 0), 3);
 
     let bounceY = 0;
     if (playing && inFlight) {
       // ホップ位相を進める（待機中・ポーズ中は進めない）
       if (!this.prevInFlight) this.hopPhase = 0; // サーブ開始時は接地から
-      const dtFrames = Math.min(Math.max((now - this.lastNow) / (1000 / 60), 0), 3);
-      this.hopPhase += dtFrames / HOP_PERIOD_FRAMES;
+      this.hopPhase += dtF / HOP_PERIOD_FRAMES;
       if (this.hopPhase >= 1) this.hopPhase -= Math.floor(this.hopPhase);
       const u = this.hopPhase; // 放物運動風の弧：4·u·(1-u) で着地時に速度が最大
       bounceY = BOUNCE_AMP * 4 * u * (1 - u);
+
+      // A: スピンを回転演出として表現（テーブル法線軸回り。シームで視認）
+      this.ballMesh.rotation.y += b.spin * SPIN_VIS_RATE * dtF;
     } else {
       this.hopPhase = 0;
     }
     this.prevInFlight = inFlight && playing;
 
     this.ballMesh.position.set(toWorldX(b.y), BALL_R + bounceY, toWorldZ(b.x));
+
+    // E: 乱流の吹き出し（+gravityY は +X / sim.y増加側へ吹く。無風時は非表示）
+    const w = g.gravityY / TURB_MAX_G;
+    const aw = Math.abs(w);
+    this.windGroup.visible = playing && aw >= 0.06;
+    if (this.windGroup.visible) {
+      this.windGroup.scale.x = (w > 0 ? 1 : -1) * Math.max(aw, 0.15);
+      this.windMat.opacity = 0.3 + 0.45 * Math.min(1, aw);
+    }
 
     // 非プレイ中も時刻は最新に保つ（復帰時の dt スパイク防止）
     this.lastNow = now;

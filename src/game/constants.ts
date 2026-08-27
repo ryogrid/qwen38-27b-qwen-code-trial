@@ -18,6 +18,9 @@ export const BALL_SPEEDUP = 1.05; // ヒット毎の加速倍率
 export const PLAYER_SPEED = 8; // px / フレーム（60fps 基準）
 export const MOUSE_FOLLOW_LERP = 0.25;
 
+// 乱流重力の振幅上限（sim.mbt の TURB_MAX_GY_D と同値。描画側の正規化用のみ使う）
+export const TURB_MAX_G = 0.06;
+
 // 角度係数（旧実装と同一の挙動を維持）
 export const SERVE_ANGLE_MAX = Math.PI / 5; // ±36度以内
 export const PADDLE_BOUNCE_MAX = Math.PI / 3.2; // 最大約56度

@@ -24,6 +24,8 @@ pub fn ball_y() -> Double
 
 pub fn center_paddles() -> Unit
 
+pub fn gravity_y() -> Double
+
 pub fn p_score() -> Int
 
 pub fn player_y() -> Double
@@ -33,6 +35,8 @@ pub fn prepare_serve(Double) -> Unit
 pub fn reset_scores() -> Unit
 
 pub fn seed(Int) -> Unit
+
+pub fn spin() -> Double
 
 pub fn step(Int, Double, Bool, Bool, Double, Bool) -> Int
 

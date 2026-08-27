@@ -52,6 +52,8 @@ interface SimExports {
   ai_y(): number;
   vx(): number;
   vy(): number;
+  spin(): number;
+  gravity_y(): number;
   p_score(): number;
   a_score(): number;
   _start?(): void; // moonc が生成する初期化エントリ（あれば必ず呼ぶ）
@@ -115,6 +117,7 @@ class BallView {
   y = H / 2;
   vx = 0;
   vy = 0;
+  spin = 0; // ボールの回転（+ は右進ボールを画面下側へ曲げる。演出のみ）
 }
 
 export class WasmGame {
@@ -124,6 +127,7 @@ export class WasmGame {
   keys = { left: false, right: false };
   mouseY = H / 2; // 直近のマウス位置（パドル移動軸のシム座標）
   useMouseFollow = true; // 移動キーで操作するとキー優先に切り替わる
+  gravityY = 0; // 現在の乱流重力 px/フレーム^2（+ は sim.y 増加側へ引く）。描画演出のみ
 
   private ex: SimExports | null = null;
   private pendingServeDir: number | null = null; // wasm 読み込み完了前の prepareServe を保持
@@ -182,6 +186,7 @@ export class WasmGame {
     this.ball.y = H / 2;
     this.ball.vx = 0;
     this.ball.vy = 0;
+    this.ball.spin = 0; // prepare_serve がスピンをリセットするのと同一
   }
 
   // ---- スコア（権威は wasm。JS は表示用に読取・リセットのみ）----
@@ -235,6 +240,8 @@ export class WasmGame {
     this.ball.y = ex.ball_y();
     this.ball.vx = ex.vx();
     this.ball.vy = ex.vy();
+    this.ball.spin = ex.spin();
+    this.gravityY = ex.gravity_y();
     this.player.y = ex.player_y();
     this.ai.y = ex.ai_y();
   }

@@ -88,6 +88,8 @@ export const EXPORTED_FUNCTIONS = [
   "ai_y",
   "vx",
   "vy",
+  "spin",
+  "gravity_y",
   "p_score",
   "a_score",
 ];

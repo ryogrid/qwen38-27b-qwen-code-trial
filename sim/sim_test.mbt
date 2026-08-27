@@ -119,3 +119,35 @@ test "reset_scores は両スコアを0に戻す" {
   reset_scores()
   assert_eq((p_score(), a_score()), (0, 0))
 }
+
+// ===== A: スピン／マグヌス効果（付与式は白箱テスト sim_wbtest.mbt で検証） =====
+
+// ===== E: 重力乱流 =====
+
+///|
+test "乱流重力は常に有界で方向が変化する" {
+  seed(11)
+  prepare_serve(-1.0)
+  center_paddles()
+  let mut ev = 0
+  let mut i = 0
+  let mut lo = 999.0
+  let mut hi = -999.0
+  while i < 2400 {
+    if (ev & 12) != 0 {
+      prepare_serve(0.0) // ポイント後は再サーブ（JS と同じ手順）
+    }
+    ev = step(2, 1.0, false, false, 260.0, true)
+    let gy = gravity_y()
+    if gy < lo {
+      lo = gy
+    }
+    if gy > hi {
+      hi = gy
+    }
+    i += 1
+  }
+  assert_true(hi <= 0.0600001) // TURB_MAX_GY_D 上限（+ε）
+  assert_true(lo >= -0.0600001)
+  assert_true(hi > 0.02 && lo < -0.02) // この長さでは両方向に振れる（凪→突風を繰り返す）
+}

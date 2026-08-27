@@ -14,13 +14,6 @@
             "context": 65536,
             "output": 8192
           }
-        },
-        "qwen3.8-27b": {
-          "name": "Qwen 3.8 27b",
-          "limit": {
-            "context": 16384,
-            "output": 8192
-          }
         }
       }
     }

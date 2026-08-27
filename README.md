@@ -22,10 +22,19 @@ Pong（1P vs CPU）。ゲームのシミュレーションは MoonBit で記述�
   - Reasoning Budget: 2048
   - Reasoning Budget Message: Use your reasoning budget for careful multi-step reasoning. Before making changes, inspect the relevant code and understand the existing design. After making changes, verify the result with appropriate tests or commands. Avoid unnecessary reasoning for simple tasks.
     - と入れてみている。もっと短くてよいという噂もある
+
 - **コーディングエージェント**: OpenCode v1.18.23
   - 利用するLLMモデルに関する設定はリポジトリ内の [opencode.json](./opencode.json) を参照
   - OpenCodeはPowerShell内で作業をしました（しています）
     - PowerShellのシェル芸もできるのはすごいですね^^
+
+### LMStudioの設定補足
+
+![LMStudio-img1](https://gist.github.com/user-attachments/assets/0e816999-00dd-4880-8b05-7e6c2bad009d)
+![LMStudio-img2](https://gist.github.com/user-attachments/assets/226a9153-b2cc-48a1-826c-9fce730b6b24)
+
+<img width="339" height="793" alt="image" src="https://gist.github.com/user-attachments/assets/0e816999-00dd-4880-8b05-7e6c2bad009d" />
+<img width="334" height="712" alt="image" src="https://gist.github.com/user-attachments/assets/226a9153-b2cc-48a1-826c-9fce730b6b24" />
 
 ## ソフトウェアスタック
 

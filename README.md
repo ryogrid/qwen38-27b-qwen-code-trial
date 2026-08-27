@@ -19,7 +19,9 @@ Pong（1P vs CPU）。ゲームのシミュレーションは MoonBit で記述�
   - MTP 有効（Max draft token 数 3）
   - Physical Batch Size / Evaluation Batch Size: 1024
   - コンテキスト長: 64k
-  - Thinking Budget: 2048
+  - Reasoning Budget: 2048
+  - Reasoning Budget Message: Use your reasoning budget for careful multi-step reasoning. Before making changes, inspect the relevant code and understand the existing design. After making changes, verify the result with appropriate tests or commands. Avoid unnecessary reasoning for simple tasks.
+    - と入れてみている。もっと短くてよいという噂もある
 - **コーディングエージェント**: OpenCode v1.18.23
   - 利用するLLMモデルに関する設定はリポジトリ内の [opencode.json](./opencode.json) を参照
   - OpenCodeはPowerShell内で作業をしました（しています）

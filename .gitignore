@@ -1,6 +1,5 @@
 node_modules/
 dist/
-opencode.json
 moonbit-docs/
 sim/_build/
 public/mb-runtime/

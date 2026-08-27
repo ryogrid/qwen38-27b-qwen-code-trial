@@ -1,8 +1,8 @@
-﻿# qwen38-27b-qwen-code-trial
+﻿# qwen38-27b-<del>qwen-code</del>open-code-trial
 
 [Xでのpost](https://x.com/ryo_grid/status/2091679529576374707)
 
-Pong（1P vs CPU）。ゲームのシミュレーションは MoonBit で記述し WebAssembly にコンパイルして走らせ、その wasm は **ブラウザ内で実行時にコンパイル**（Web Worker 内の `moonc-web`）するため、JS 側に MoonBit ツールチェインは不要です。
+Pong（1P vs CPU）。ゲームのシミュレーションは MoonBit で記述し WebAssembly にコンパイルして走らせ、その wasm は **ブラウザ内で実行時にコンパイル**（Web Worker 内の `moonc-web`）するため、ビルド環境に MoonBit ツールチェインは不要です。
 
 ## ソフトウェアスタック
 
@@ -17,14 +17,14 @@ Pong（1P vs CPU）。ゲームのシミュレーションは MoonBit で記述�
 - `sim/` の std `.mi` ファイル群とコアサブセットは `@marianoguerra/tutuca-playground-payload` に由来し、predev / prebuild で `public/mb-runtime/` にコピーされる
 - 事前ビルド済み wasm は存在せず、初回ロード時にブラウザが数秒かけてコンパイルする
 
-## 設計（簡略）
+## 設計
 
-### 権威の分離
+### 階層的な役割分担
 
-1. **シミュレーション層（権威）** — `sim/sim.mbt`（MoonBit）。物理・ロジック・スコア管理は全てこちら。TS 側は一切計算せず、入力を渡し `step` を呼んで結果（イベントビット群）を受け取るだけ
+1. **シミュレーション層（ゲームのコア）** — `sim/sim.mbt`（MoonBit）。物理・ロジック・スコア管理は全てこちら。TS 側は一切計算せず、入力を渡し `step` を呼んで結果（イベントビット群）を受け取るだけ
 2. **TS ファサード** — `src/game/wasmSim.ts`。wasm の export を React から使いやすい形に包み、イベントビットをビープ音等に翻訳する
 3. **ブラウザ内コンパイル** — `simCompiler.worker.ts` が `moonc-web.cjs` を CJS シム越しに eval し、`buildPackage` → `linkCore` で wasm バイト列を生成してメインスレッドへ返す
-4. **レンダラー（非権威）** — three.js 側は状態を構造的ビューとして読むだけで描画する。ボールのシーム回転や乱流の風矢印も演出のみ
+4. **レンダラー** — three.js 側は状態を構造的ビューとして読むだけで描画する。ボールのシーム回転や乱流の風矢印も描画のみ
 
 ### シミュレーションの特徴
 
@@ -48,11 +48,16 @@ npm run dev   # http://localhost:5173 （初回のみ wasm コンパイルに数
 
 ## 実装環境（ローカル LLM）
 
-本プロジェクトのコードは、**OpenCode** で **Qwen3.8 27B** をローカル GPU 上で動作させて実装しました。
+本プロジェクトのコードは、**LMStudio（llama.cpp）** で **Qwen3.8 27B** を動作させることでローカルLLM環境を構築し、その上で **OpenCode（≠ Qwen Code CLI)** を動作させ実装しました。
 
-- **モデル**: [jrell/Qwen3.8-27B-i1-IQ4_XS-GGUF-Smaller](https://huggingface.co/jrell/Qwen3.8-27B-i1-IQ4_XS-GGUF-Smaller)
-- **OS / ハードウェア**: Windows 11（非 WSL 環境）/ Radeon RX 9060 XT 16GB、ROCm エンジン
-- **ランナー**: LM Studio
+- **LLMモデル**: [jrell/Qwen3.8-27B-i1-IQ4_XS-GGUF-Smaller](https://huggingface.co/jrell/Qwen3.8-27B-i1-IQ4_XS-GGUF-Smaller)
+- **OS / ハードウェア**: Windows 11（非 WSL 環境）/ Radeon RX 9060 XT 16GB
+  - LMStudio も OpenCode もネイティブのWindows11上 で動作
+  - OpenCodeはPowerShell内で作業をしました（しています）
+    - PowerShellのシェル芸もできるのはすごいですね^^
+- **LLMランナー/サーバ**: LM Studio
+  - ROCm ランタイム
+    - Vulkanランタイムでもおそらく動作し、ほぼ同等のパフォーマンスになる気がします
   - KV Cache: Q4_0
   - MTP 有効（Max draft token 数 3）
   - Physical Batch Size / Evaluation Batch Size: 1024

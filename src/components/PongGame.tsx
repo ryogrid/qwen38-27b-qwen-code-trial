@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { WasmGame } from "../game/wasmSim";
-import type { Side } from "../game/wasmSim";
+import type { PointResult } from "../game/wasmSim";
 import { PongScene } from "../render/PongScene";
 import { setSoundEnabled } from "../game/sound";
-import { SCREENS, H, WIN_SCORE } from "../game/constants";
+import { SCREENS, H } from "../game/constants";
 import type { DifficultyKey, ScreenId } from "../game/constants";
 
 const LEVELS: [DifficultyKey, string][] = [
@@ -38,6 +38,7 @@ export default function PongGame() {
     const g = gameRef.current!;
     scoresRef.current = { player: 0, ai: 0 };
     setScores({ player: 0, ai: 0 });
+    g.resetScores(); // スコアは wasm が権威（リセットもシム内で実行）
     g.centerPaddles(); // 両パドルを中央に戻す（wasm シム内）
     g.useMouseFollow = true;
     g.prepareServe(); // dir なし → ランダム方向でサーブ準備
@@ -64,16 +65,16 @@ export default function PongGame() {
     const lastTime = { current: 0 };
     let rafId: number;
 
-    // ポイント処理：stepGame の戻り値で判定（勝敗・次のサーブもここで制御）
-    function handlePoint(side: Side) {
-      const s = scoresRef.current;
-      const next = { ...s, [side]: s[side] + 1 };
+    // ポイント処理：stepSim の戻り値で判定（勝敗・次のサーブもここで制御）
+    function handlePoint(res: PointResult) {
+      // スコアの権威は wasm：ステップ直後の値を読み出して表示用に同期する
+      const next = { player: game.pScore(), ai: game.aScore() };
       scoresRef.current = next;
       setScores(next);
-      if (next[side] >= WIN_SCORE) {
+      if (res.gameOver) {
         setScreen(SCREENS.GAMEOVER);
       } else {
-        game.prepareServe(side === "player" ? 1 : -1);
+        game.prepareServe(res.side === "player" ? 1 : -1);
       }
     }
 
@@ -146,8 +147,8 @@ export default function PongGame() {
       rafId = requestAnimationFrame(frame);
       const playing = screenRef.current === SCREENS.PLAYING;
       if (playing) {
-        const side = game.stepSim(difficultyRef.current, now, lastTime);
-        if (side) handlePoint(side);
+        const res = game.stepSim(difficultyRef.current, now, lastTime);
+        if (res) handlePoint(res);
       } else {
         // 非プレイ中はステップしないが時刻は最新に保つ（元実装: lastTime は毎フレーム更新）
         lastTime.current = now;

@@ -92,6 +92,8 @@ priv struct Sim {
   mut serve_dir : Double // 次のサーブ方向（-1=プレイヤー側 / +1=AI側）
   mut ai_err_off : Double // AI の追跡誤差（サーブごとに乱数化）
   mut rng_state : UInt // 乱数状態（xorshift32。非ゼロを保証）
+  mut p_score : Int // プレイヤー得点（勝敗判定の権威はこのモジュール側）
+  mut a_score : Int // AI 得点
 }
 
 // 新しいゲーム状態（TS `new Game()` と同一の初期値）。
@@ -112,6 +114,8 @@ fn make_sim() -> Sim {
     serve_dir: 1.0,
     ai_err_off: 0.0,
     rng_state: DEFAULT_SEED,
+    p_score: 0,
+    a_score: 0,
   }
 }
 
@@ -183,6 +187,13 @@ pub const EV_POINT_PLAYER : Int = 4 // プレイヤー得点（ボール右ア�
 ///|
 pub const EV_POINT_AI : Int = 8 // AI 得点（ボール左アウト。180Hz beep）
 
+///|
+pub const EV_GAME_OVER : Int = 16 // 勝敗決着（片方が WIN_SCORE に到達した同一フレームにポイントビットと同時返却）
+
+///|
+// 勝利に必要なポイント数（constants.ts の WIN_SCORE と同値。ロジック権威はここ側）
+pub const WIN_SCORE : Int = 5
+
 // 1フレームのシミュレーション。game.ts の step() と同一ロジック・同一順序。
 // dt は呼び出し側が (now - lastTime) / (1000/60) を上限3でクランプした値を渡す（stepSim 相当）。
 
@@ -242,6 +253,26 @@ pub fn vx() -> Double {
 ///|
 pub fn vy() -> Double {
   g.vy
+}
+
+// スコア読み取り（JS 側は表示のみ。権威はこのモジュール側）
+
+///|
+pub fn p_score() -> Int {
+  g.p_score
+}
+
+///|
+pub fn a_score() -> Int {
+  g.a_score
+}
+
+// Game start/restart (TS's `scores = [0,0]` equivalent): zero out both sides' scores
+
+///|
+pub fn reset_scores() -> Unit {
+  g.p_score = 0
+  g.a_score = 0
 }
 
 ///|
@@ -371,12 +402,28 @@ fn update_ball(dt : Double) -> Int {
     ev = ev | EV_PADDLE_HIT
   }
 
-  // 左右アウト → ポイント（得点側はビットで区別）
+  // 左右アウト → ポイント（得点側はビットで区別。勝敗判定もここで行う）
   if g.ball_x < -BALL_R_D * 2 {
-    return EV_POINT_AI // 左アウト：AI の得点
+    return add_point(false, EV_POINT_AI) // 左アウト：AI の得点
   } else if g.ball_x > W_D + BALL_R_D * 2 {
-    return EV_POINT_PLAYER // 右アウト：プレイヤーの得点
+    return add_point(true, EV_POINT_PLAYER) // 右アウト：プレイヤーの得点
   }
 
+  ev
+}
+
+// ポイント加算と勝敗判定（勝敗が決まったら EV_GAME_OVER を併せて返す）
+
+///|
+fn add_point(player_side : Bool, bit : Int) -> Int {
+  if player_side {
+    g.p_score += 1
+  } else {
+    g.a_score += 1
+  }
+  let mut ev = bit
+  if g.p_score >= WIN_SCORE || g.a_score >= WIN_SCORE {
+    ev = ev | EV_GAME_OVER
+  }
   ev
 }

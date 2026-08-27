@@ -55,3 +55,67 @@ test "有界ステップ内で必ず何らかのポイントになる" {
   }
   assert_true((ev & 4) != 0 || (ev & 8) != 0) // 有界フレーム内に得点ビットが出る
 }
+
+// ===== スコア・勝敗判定（wasm 側が権威） =====
+
+///|
+test "ポイントは正しい側のスコアに1加算される" {
+  seed(21)
+  reset_scores()
+  prepare_serve(0.0)
+  center_paddles()
+  let mut ev = 0
+  let mut i = 0
+  while (ev & 12) == 0 && i < 3000 {
+    ev = step(2, 1.0, false, false, 260.0, true)
+    i += 1
+  }
+  if (ev & EV_POINT_PLAYER) != 0 {
+    assert_eq((p_score(), a_score()), (1, 0)) // 右アウト：プレイヤー得点のみ
+  } else {
+    assert_eq((p_score(), a_score()), (0, 1)) // 左アウト：AI 得点のみ
+  }
+}
+
+///|
+test "WIN_SCORE に到達したフレームに EV_GAME_OVER が付く" {
+  seed(21)
+  reset_scores()
+  prepare_serve(0.0)
+  center_paddles()
+  let mut ev = 0
+  let mut i = 0
+  while (ev & EV_GAME_OVER) == 0 && i < 60000 {
+    if (ev & 12) != 0 {
+      prepare_serve(0.0) // ポイント後の再サーブ（JS と同じ手順）
+    }
+    ev = step(2, 1.0, false, false, 260.0, true)
+    i += 1
+  }
+  // ゲームオーバーは必ずポイントと同時
+  assert_true((ev & EV_POINT_PLAYER) != 0 || (ev & EV_POINT_AI) != 0)
+  // 勝者はちょうど WIN_SCORE 点、敗者是数以下
+  if (ev & EV_POINT_PLAYER) != 0 {
+    assert_eq(p_score(), WIN_SCORE)
+    assert_true(a_score() < WIN_SCORE)
+  } else {
+    assert_eq(a_score(), WIN_SCORE)
+    assert_true(p_score() < WIN_SCORE)
+  }
+}
+
+///|
+test "reset_scores は両スコアを0に戻す" {
+  seed(5)
+  prepare_serve(1.0) // プレイヤー側へのサーブ（AI 方向）で決定的に
+  center_paddles()
+  let mut ev = 0
+  let mut i = 0
+  while (ev & 12) == 0 && i < 3000 {
+    ev = step(2, 1.0, false, false, 260.0, true)
+    i += 1
+  }
+  assert_true((p_score(), a_score()) != (0, 0)) // この時点で必ず片方加算済み
+  reset_scores()
+  assert_eq((p_score(), a_score()), (0, 0))
+}

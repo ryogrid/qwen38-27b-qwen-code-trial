@@ -5,7 +5,7 @@ export const H = 520; // キャバスの高さ
 export const PADDLE_W = 14;
 export const PADDLE_H = 92;
 export const BALL_R = 8;
-export const WIN_SCORE = 5;
+// 勝利点数（WIN_SCORE）はロジック権威が wasm 側（sim/sim.mbt）に移管したため非管理。
 
 export const PX = 26; // プレイヤーパドルの x（左端）
 export const AX = W - 26 - PADDLE_W; // AIパドルの x（右端）

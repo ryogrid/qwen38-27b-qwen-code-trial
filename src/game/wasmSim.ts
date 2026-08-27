@@ -1,12 +1,14 @@
 // ===== wasm シミュレーションブリッジ =====
-// MoonBit で書き直したシム本体（sim/sim.mbt → sim.wasm）を読み込み、
-// game.ts の Game と同じインターフェースを模して提供する。
+// sim/sim.mbt を ?raw でインポートし、Web Worker（simCompiler.worker.ts）内で
+// ブラウザ実行時に moonc-web が wasm-gc にコンパイル → インスタンス化する。
+// JS 側に MoonBit ツールチェーンは不要（アセットは predev/prebuild が配置）。
+// スコア・勝敗の権威は wasm 側（p_score/a_score/reset_scores/EV_GAME_OVER）。
 // 乱数は wasm 内部の xorshift32（seed() で固定可）。決定的リプレイ用。
 
 import { W, H } from "./constants";
 import type { DifficultyKey } from "./constants";
 import { beep } from "./sound";
-import simWasmUrl from "../../sim/_build/wasm/release/build/sim.wasm?url";
+import simSource from "../../sim/sim.mbt?raw";
 
 export type Side = "player" | "ai";
 
@@ -15,11 +17,18 @@ export interface LastTimeRef {
   current: number;
 }
 
+// ポイント発生時の結果（勝敗は wasm が EV_GAME_OVER で通知。JS では数え上げない）
+export interface PointResult {
+  side: Side;
+  gameOver: boolean;
+}
+
 // イベントビット（sim.mbt の EV_* と一致させること）
 const EV_PADDLE_HIT = 1; // パドルヒット（600Hz beep）
 const EV_WALL = 2; // 上下壁リバウンド（420Hz beep）
 const EV_POINT_PLAYER = 4; // プレイヤー得点（ボール右アウト。180Hz beep）
 const EV_POINT_AI = 8; // AI 得点（ボール左アウト。180Hz beep）
+const EV_GAME_OVER = 16; // 勝敗決着（ポイントビットと同一フレームに付与）
 
 // DifficultyKey → sim.mbt の DIFFICULTIES インデックス（easy/medium/hard の順で一致させること）
 const DIFF_IDX: Record<DifficultyKey, number> = { easy: 0, medium: 1, hard: 2 };
@@ -28,6 +37,7 @@ interface SimExports {
   seed(s: number): void;
   prepare_serve(dir: number): void;
   center_paddles(): void;
+  reset_scores(): void;
   step(
     idx: number,
     dt: number,
@@ -42,6 +52,45 @@ interface SimExports {
   ai_y(): number;
   vx(): number;
   vy(): number;
+  p_score(): number;
+  a_score(): number;
+  _start?(): void; // moonc が生成する初期化エントリ（あれば必ず呼ぶ）
+}
+
+type WorkerCompileResponse =
+  | { ok: true; wasmBytes: Uint8Array }
+  | { ok: false; error: string };
+
+// アセットは public/mb-runtime/ へ配置済み（scripts/copy-moonbit-assets.mjs）。
+// BASE_URL が "/" で終わるため末尾スラッシュを除去してから連結し、二重スラッシュを避ける。
+const ASSET_BASE = `${import.meta.env.BASE_URL.replace(/\/+$/, "")}/mb-runtime/`;
+
+function compileViaWorker(): Promise<SimExports> {
+  const worker = new Worker(new URL("./simCompiler.worker.ts", import.meta.url), {
+    type: "module",
+  });
+  return new Promise<SimExports>((resolve, reject) => {
+    worker.onmessage = (e: MessageEvent<WorkerCompileResponse>) => {
+      const res = e.data;
+      worker.terminate();
+      if (!res.ok) {
+        reject(new Error(`sim.mbt のブラウザ内コンパイルに失敗しました:\n${res.error}`));
+        return;
+      }
+      (async () => {
+        // import 0 / export のみ。_start があれば初期化してから使う
+        const instance = new WebAssembly.Instance(res.wasmBytes, {});
+        const ex = instance.exports as unknown as SimExports;
+        if (typeof ex._start === "function") ex._start();
+        resolve(ex);
+      })().catch(reject);
+    };
+    worker.onerror = (e) => {
+      worker.terminate();
+      reject(new Error(`コンパイラワーカーでエラー: ${e.message}`));
+    };
+    worker.postMessage({ source: simSource, baseUrl: ASSET_BASE });
+  });
 }
 
 // wasm はモジュールグローバルな単一シミュレーション状態を持つ（アプリ全体で1つのみ）
@@ -49,12 +98,11 @@ let loadPromise: Promise<SimExports> | null = null;
 
 function loadWasm(): Promise<SimExports> {
   if (!loadPromise) {
-    loadPromise = fetch(simWasmUrl)
-      .then((r) => r.arrayBuffer())
-      .then(async (buf) => {
-        const instance = new WebAssembly.Instance(new WebAssembly.Module(buf), {});
-        return instance.exports as unknown as SimExports;
-      });
+    loadPromise = compileViaWorker().catch((err) => {
+      // 失敗しても再試行できるようにキャッシュしない（コンソールには残す）
+      console.error("[wasmSim] シムの読み込みに失敗しました:", err);
+      throw err;
+    });
   }
   return loadPromise;
 }
@@ -127,7 +175,21 @@ export class WasmGame {
     this.ball.vy = 0;
   }
 
-  stepSim(difficultyKey: DifficultyKey, now: number, lastTimeRef: LastTimeRef): Side | null {
+  // ---- スコア（権威は wasm。JS は表示用に読取・リセットのみ）----
+  pScore(): number {
+    return this.ex ? this.ex.p_score() : 0;
+  }
+
+  aScore(): number {
+    return this.ex ? this.ex.a_score() : 0;
+  }
+
+  resetScores(): void {
+    const ex = this.ex;
+    if (ex) ex.reset_scores();
+  }
+
+  stepSim(difficultyKey: DifficultyKey, now: number, lastTimeRef: LastTimeRef): PointResult | null {
     // dt は Game.stepSim と同一（60fps フレーム換算、最大3をクランプ）
     const dt = Math.min((now - (lastTimeRef.current || now)) / (1000 / 60), 3);
     lastTimeRef.current = now;
@@ -146,13 +208,16 @@ export class WasmGame {
     if (ev & EV_PADDLE_HIT) beep(600, 0.05); // パドルヒット（game.ts と同一）
     if (ev & EV_WALL) beep(420, 0.05); // 壁リバウンド
 
-    let side: Side | null = null;
-    if (ev & EV_POINT_PLAYER) side = "player";
-    else if (ev & EV_POINT_AI) side = "ai";
-    if (side) beep(180, 0.25, 0.22); // ポイント効果音（旧 pointScored）
+    let result: PointResult | null = null;
+    if (ev & EV_POINT_PLAYER) {
+      result = { side: "player", gameOver: !!(ev & EV_GAME_OVER) };
+    } else if (ev & EV_POINT_AI) {
+      result = { side: "ai", gameOver: !!(ev & EV_GAME_OVER) };
+    }
+    if (result) beep(180, 0.25, 0.22); // ポイント効果音（旧 pointScored）
 
     this.sync();
-    return side;
+    return result;
   }
 
   private sync(): void {

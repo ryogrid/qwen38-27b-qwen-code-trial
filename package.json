@@ -4,7 +4,10 @@
   "version": "2.0.0",
   "type": "module",
   "scripts": {
+    "postinstall": "node scripts/link-moon.mjs",
+    "predev": "node scripts/copy-moonbit-assets.mjs",
     "dev": "vite",
+    "prebuild": "node scripts/copy-moonbit-assets.mjs",
     "build": "vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit"
@@ -15,6 +18,8 @@
     "three": "^0.185.1"
   },
   "devDependencies": {
+    "@marianoguerra/tutuca-playground-payload": "^0.23.0",
+    "@moonbit/moonc-worker": "^0.1.202608195",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
     "@types/three": "^0.185.4",

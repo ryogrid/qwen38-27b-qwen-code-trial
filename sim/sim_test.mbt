@@ -94,7 +94,7 @@ test "WIN_SCORE に到達したフレームに EV_GAME_OVER が付く" {
   }
   // ゲームオーバーは必ずポイントと同時
   assert_true((ev & EV_POINT_PLAYER) != 0 || (ev & EV_POINT_AI) != 0)
-  // 勝者はちょうど WIN_SCORE 点、敗者是数以下
+  // 勝者はちょうど WIN_SCORE 点、敗者はそれを下回る（< WIN_SCORE）
   if (ev & EV_POINT_PLAYER) != 0 {
     assert_eq(p_score(), WIN_SCORE)
     assert_true(a_score() < WIN_SCORE)

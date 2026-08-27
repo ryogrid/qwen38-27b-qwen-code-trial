@@ -1,4 +1,4 @@
-// Pong ゲームのシミュレーション本体 — src/game/*.ts の MoonBit 移植（ビルド目标是 wasm）
+// Pong ゲームのシミュレーション本体（旧 script.js から段階移植した MoonBit 版。ビルド対象は wasm）
 
 ///|
 // ===== 定数（constants.ts と同じ値。Double = f64 で JS number と完全に一致） =====
@@ -194,7 +194,7 @@ pub const EV_GAME_OVER : Int = 16 // 勝敗決着（片方が WIN_SCORE に到�
 // 勝利に必要なポイント数（constants.ts の WIN_SCORE と同値。ロジック権威はここ側）
 pub const WIN_SCORE : Int = 5
 
-// 1フレームのシミュレーション。game.ts の step() と同一ロジック・同一順序。
+// 1フレームのシミュレーション。旧実装（script.js）の step() と同一ロジック・同一順序。
 // dt は呼び出し側が (now - lastTime) / (1000/60) を上限3でクランプした値を渡す（stepSim 相当）。
 
 ///|
@@ -276,7 +276,7 @@ pub fn reset_scores() -> Unit {
 }
 
 ///|
-// ===== 内部処理（game.ts の private メソッド相当） =====
+// ===== 内部処理（旧実装 script.js の private メソッド相当） =====
 
 fn clamp_paddle_y(y : Double) -> Double {
   // Paddle.clamp() と同一の式: max(PADDLE_H/2, min(H - PADDLE_H/2, y))
@@ -371,7 +371,7 @@ fn update_ball(dt : Double) -> Int {
   g.ball_x += g.vx * dt
   g.ball_y += g.vy * dt
 
-  // 上下壁のリバウンド（game.ts と同じ if / else-if 構造で、1フレームの二重リバウンドを防ぐ）
+  // 上下壁のリバウンド（旧実装と同じ if / else-if 構造で、1フレームの二重リバウンドを防ぐ）
   if g.ball_y - BALL_R_D <= 0.0 && g.vy < 0.0 {
     g.ball_y = BALL_R_D
     g.vy = -g.vy

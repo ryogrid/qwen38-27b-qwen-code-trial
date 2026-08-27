@@ -20,7 +20,6 @@ No linter or formatter is configured. TS verification = `typecheck` + `build`; s
 - `scripts/copy-moonbit-assets.mjs` — predev/prebuild step: copies `moonc-web.cjs`, `manifest.json`, 78 std `.mi` files and the minimal 3-core subset from `@marianoguerra/tutuca-playground-payload` into `public/mb-runtime/` (gitignored)
 - `src/render/PongScene.ts` — three.js renderer; reads state via structural `SimView` (`player.y`, `ai.y`, `ball.{x,y,vx,vy}`)
 - `sim/` — MoonBit module (`internal/sim`): `sim.mbt` is the whole simulation, wasm export list in `moon.pkg`, tests in `sim_test.mbt`. Native build artifacts under `_build/` (gitignored) are only for `moon test`; the app itself never consumes them
-- `src/game/{game,ball,paddle}.ts` — legacy TS sim kept for behavior-parity reference only; typechecked but not bundled
 - `src/game/constants.ts` (all tunables: W/H = 900×520, speeds, AI difficulty table) and `sound.ts` (WebAudio beeps) are still shared by the facade
 
 ## Gotchas
@@ -35,4 +34,4 @@ No linter or formatter is configured. TS verification = `typecheck` + `build`; s
 - Version lockstep: `@moonbit/moonc-worker` and the payload package are version-paired (compiler + std `.mi` set). Bumping one without the other breaks linking (E4018-style errors). Keep both at their current paired versions until a verified pair is found.
 - `linkCore` needs: the **minimal 3-core subset** (`000_abort_abort`, `001_bundle_core`, `002_core_core` — the full linkOrder set also works but is slower), `pkgSources: ["internal/sim:."]`, a `_boot.mbt` with an empty `main`, and `exportedFunctions` matching `sim/moon.pkg` exactly (plus auto-added `_start`). When adding/changing pub functions in `sim.mbt`, update **both** `moon.pkg` and the worker's export list.
 - WasmGC needs a modern browser (Chrome ~109+, Safari 16.4+). Node <21 cannot instantiate these modules, so local acceptance = play manually in a real browser after `npm run dev`.
-- Simulation code was ported from the legacy script.js with deliberate behavior parity (TS reference kept in `src/game/*.ts`, MoonBit implementation in `sim/sim.mbt`); comments referencing 旧実装 mark those spots — preserve parity when editing sim logic, and verify with `moon test` plus the same-seed replay check.
+- Simulation code was ported from the legacy script.js with deliberate behavior parity (MoonBit implementation in `sim/sim.mbt`; the old TS reference has been removed). Comments referencing 旧実装 mark those spots — verify sim changes with `moon test` (deterministic same-seed black-box tests), then play manually.

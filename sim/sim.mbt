@@ -101,7 +101,7 @@ const DROP_INTERVAL_MIN_D : Double = 40.0 // ドロップ間隔の下限 フレ�
 const DROP_INTERVAL_VAR_D : Double = 80.0 // ドロップ間隔の乱数幅（次回 = min + rnd()*var、xorshift32 で決定的）
 
 ///|
-const DROP_RADIUS_D : Double = 64.0 // ドロップ着水の半径方向影響半径 px
+const DROP_RADIUS_D : Double = 96.0 // ドロップ着水の影響半径 px（旧 64 の 1.5 倍で広域攪拌）
 
 ///|
 const DROP_IMPULSE_D : Double = 5.0 // 着水中心のピーク衝撃 px/フレーム@60fps（直線減衰、FLOW_MAX_D でクランプ）
@@ -423,8 +423,9 @@ fn update_fluid(dt : Double) -> Unit {
 }
 
 // ドロップ着水：コート内の一様ランダムな点に、距離で減衰する衝撃を近傍セルへ加算。
-// 横方向（x 成分）のみを与える — 縦方向の流れはボールの軌道を縦に止めかねないため。
-// fy グリッドは常にゼロのまま（flow_sample_y は契約のために残す）。
+// y 成分（パドル間 x 軸に垂直な方向）のみを与える — スコアリング軸（x 方向）の流れは
+// ボールの横断を止めかねないため与えない。
+// fx グリッドは常にゼロのまま（flow_sample_x は契約のために残す）。
 
 ///|
 fn spawn_droplet() -> Unit {
@@ -456,11 +457,11 @@ fn spawn_droplet() -> Unit {
         let wgt : Double = 1.0 - dist / DROP_RADIUS_D // 中心で最大、縁でゼロ
         let imp = DROP_IMPULSE_D * wgt
         if dist > 0.0001 {
-          // 横方向成分だけ加算（縦方向の攪拌は意図的に与えない）
-          g.fl_x_a[row + i] += imp * (sx_ / dist)
+          // y 成分だけ加算（スコアリング軸 x への攪拌は意図的に与えない）
+          g.fl_y_a[row + i] += imp * (sy_ / dist)
         } else {
-          // 完全一致時は固定方向（-x）へ抜ける（決定的性のため）
-          g.fl_x_a[row + i] -= imp
+          // 完全一致時は固定方向（-y）へ抜ける（決定的性のため）
+          g.fl_y_a[row + i] -= imp
         }
       }
     }

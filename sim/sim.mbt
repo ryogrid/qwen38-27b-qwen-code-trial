@@ -89,16 +89,16 @@ const FLOW_DECAY_RATE_D : Double = 0.010 // 流れの毎フレーム減衰率（
 const FLOW_MAX_D : Double = 8.0 // |flow| の上限 px/フレーム@60fps（有界性保証。MAX_BALL_SPEED_D より小さい）
 
 ///|
-const DRAG_REL_K_D : Double = 0.003 // コート全面ウォーター用：相対抗力ゲイン（次元なし）。DRAG_ABS_RATE_D と併せ全減衰 λ≈0.005/フレーム（τ≈200f）で、BASE_BALL_SPEED_D のショットでもコート横断に届く到達距離（≈1300px）を確保しつつ、明確な水中減速感を残す
+const DRAG_REL_K_D : Double = 0.006 // コート全面ウォーター用：相対抗力ゲイン（次元なし）。流れ追従の均衡速度≈局所流速の 86%（=K/(K+ABS)）で、ボールが明確に水流に押し流される強さ。DRAG_ABS_RATE_D と併せ全減衰 λ≈0.007/フレーム（τ≈143f）、BASE_BALL_SPEED_D のショットでもコート横断に届く到達距離（≈928px）を確保
 
 ///|
-const DRAG_ABS_RATE_D : Double = 0.002 // 水中での減衰率（除数形式、半減≈347フレーム。相対項と併せて球のリバウンド・再開行を妨げない弱め）
+const DRAG_ABS_RATE_D : Double = 0.001 // 水中での減衰率（除数形式、半減≈693フレーム。減速感は相対項が主役のため小さめ。球のリバウンド・再開行を妨げない）
 
 ///|
-const DROP_INTERVAL_MIN_D : Double = 90.0 // ドロップ間隔の下限 フレーム（≈1.5秒）
+const DROP_INTERVAL_MIN_D : Double = 40.0 // ドロップ間隔の下限 フレーム（≈0.7秒。平均≈1.3秒で頻繁に着水する）
 
 ///|
-const DROP_INTERVAL_VAR_D : Double = 120.0 // ドロップ間隔の乱数幅（次回 = min + rnd()*var、xorshift32 で決定的）
+const DROP_INTERVAL_VAR_D : Double = 80.0 // ドロップ間隔の乱数幅（次回 = min + rnd()*var、xorshift32 で決定的）
 
 ///|
 const DROP_RADIUS_D : Double = 64.0 // ドロップ着水の半径方向影響半径 px
@@ -182,7 +182,7 @@ fn make_sim() -> Sim {
     fl_y_a: Array::make(FLUID_N_DEFAULT * FLUID_M_DEFAULT, 0.0),
     tmp_x_a: Array::make(FLUID_N_DEFAULT * FLUID_M_DEFAULT, 0.0),
     tmp_y_a: Array::make(FLUID_N_DEFAULT * FLUID_M_DEFAULT, 0.0),
-    drop_timer: DROP_INTERVAL_MIN_D + DROP_INTERVAL_VAR_D / 2, // ≈2.5秒後に最初の着水（決定的）
+    drop_timer: DROP_INTERVAL_MIN_D + DROP_INTERVAL_VAR_D / 2, // ≈1.3秒後に最初の着水（決定的）
     player_y: H_D / 2,
     ai_y: H_D / 2,
     serve_timer: 0.0, // TS コンストラクタも 0（実際の待機は prepareServe で開始）

@@ -33,9 +33,9 @@ const EV_GAME_OVER = 16; // 勝敗決着（ポイントビットと同一フレ�
 // DifficultyKey → sim.mbt の DIFFICULTIES インデックス（easy/medium/hard の順で一致させること）
 const DIFF_IDX: Record<DifficultyKey, number> = { easy: 0, medium: 1, hard: 2 };
 
-// 水面流れの描画用プロブ格子（コート全面 [0, W] × [0, H] の固定レイアウト。sync() で毎フレームサンプリング）
-const FLOW_COLS = 10; // x 方向（左右に均等分割、dx=90px）
-const FLOW_ROWS = 4; // y 方向（上下壁間を均等分割、dy=130px）
+// 水面流れの描画用プロブ格子：sim.mbt の FLUID_N_DEFAULT × FLUID_M_DEFAULT と一致させること（セル単位で各セル中心に1つ）。sync() で毎フレームサンプリング
+const FLOW_N = 30; // H 方向（縦軸）セル数（= sim.mbt の FLUID_N_DEFAULT。dx≈17px）
+const FLOW_M = 52; // W 方向（横軸）セル数（= sim.mbt の FLUID_M_DEFAULT）
 
 interface SimExports {
   seed(s: number): void;
@@ -132,12 +132,19 @@ export class WasmGame {
   keys = { left: false, right: false };
   mouseY = H / 2; // 直近のマウス位置（パドル移動軸のシム座標）
   useMouseFollow = true; // 移動キーで操作するとキー優先に切り替わる
-  flowArrows: { x: number; y: number; fx: number; fy: number }[] = []; // コート全面の水流描画用プロブ点（init で一度だけ配置）
+  flowArrows: { x: number; y: number; fx: number; fy: number }[] = []; // コート全面の水流描画用プロブ点（セル単位・全体 FLOW_N×FLOW_M。位置は構築時に固定）
 
   private ex: SimExports | null = null;
   private pendingServeDir: number | null = null; // wasm 読み込み完了前の prepareServe を保持
 
   constructor() {
+    // プロブレイアウトは静的な格子なので、この場で全点を一気に配置する（レンダラが最初の一フレームから安定した長さを読める）
+    for (let j = 0; j < FLOW_M; j++) {
+      const x = ((j + 0.5) * W) / FLOW_M; // セル中心 x ∈ [0, W]（横軸セル番号 j）
+      for (let i = 0; i < FLOW_N; i++) {
+        this.flowArrows.push({ x, y: ((i + 0.5) * H) / FLOW_N, fx: 0, fy: 0 }); // セル中心 y ∈ [0, H]（縦軸セル番号 i）
+      }
+    }
     void this.init();
   }
 
@@ -146,17 +153,6 @@ export class WasmGame {
       loadWasm()
         .then((ex) => {
           this.ex = ex;
-          // コート全面 [0, W] × [0, H] を FLOW_COLS×FLOW_ROWS の固定プロブで均等分割（一度だけ）
-          for (let i = 0; i < FLOW_COLS; i++) {
-            for (let j = 0; j < FLOW_ROWS; j++) {
-              this.flowArrows.push({
-                x: ((i + 0.5) * W) / FLOW_COLS,
-                y: ((j + 0.5) * H) / FLOW_ROWS,
-                fx: 0,
-                fy: 0,
-              });
-            }
-          }
           if (this.pendingServeDir !== null) {
             ex.prepare_serve(this.pendingServeDir); // 読み込み待ちのサーブをここに適用
             this.pendingServeDir = null;

@@ -5,7 +5,7 @@
 Pong（1P vs CPU）。ゲームのシミュレーションは MoonBit で記述し WebAssembly にコンパイルして走らせ、その wasm は **ブラウザ内で実行時にコンパイル**（Web Worker 内の `moonc-web`）するため、ビルド環境に MoonBit ツールチェインは不要です。
 ## 実装環境（ローカル LLM）
 
-本プロジェクトのコードは、**LMStudio（llama.cpp）** で **Qwen3.8 27B** を動作させることでローカルLLM環境を構築し、同LLMに **OpenCode（≠ Qwen Code CLI)** を動作させ実装しました。
+本プロジェクトのコードは、**LMStudio（llama.cpp）** で **Qwen3.8 27B** を動作させることでローカルLLM環境を構築し、**OpenCode（≠ Qwen Code CLI)** を同LLMに接続させて動作させることで実装しました。
 
 - **LLMモデル**: [jrell/Qwen3.8-27B-i1-IQ4_XS-GGUF-Smaller](https://huggingface.co/jrell/Qwen3.8-27B-i1-IQ4_XS-GGUF-Smaller)
 - **OS / ハードウェア**: Windows 11（非 WSL 環境）/ Ryzen 7 5700X 物理8コア（論理16コア）/ 主記憶 64GB（8-16GBあれば十分な気がします） / Radeon RX 9060 XT 16GB

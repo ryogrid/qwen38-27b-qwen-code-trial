@@ -1,13 +1,14 @@
 // ===== three.js シーン構築と毎フレーム更新（3D 描画層）=====
 import * as THREE from "three";
-import { W, H, PADDLE_W, PADDLE_H, BALL_R, PX, AX, TURB_MAX_G } from "../game/constants";
+import { W, H, PADDLE_W, PADDLE_H, BALL_R, PX, AX } from "../game/constants";
 
 // シーンが読むシムの最小構造（wasmSim の WasmGame が適合する）
 interface SimView {
   player: { y: number };
   ai: { y: number };
   ball: { x: number; y: number; vx: number; vy: number; spin: number };
-  gravityY: number; // 現在の乱流重力 px/フレーム^2（+ は sim.y 増加側へ引く）。描画のみ
+  waterY: number; // 水面線（sim y 座標）。描画のみ
+  flowArrows: { x: number; y: number; fx: number; fy: number }[]; // 水面流れのプロブ点。描画のみ
 }
 
 // シミュレーション座標 → ワールド座標のマッピング
@@ -29,6 +30,10 @@ const SPIN_VIS_RATE = 0.5;
 // パドルメッシュの高さ（装飾用。シムの PADDLE_W/H は X/Z 方向の寸法に使う）
 const PADDLE_MESH_H = 18;
 
+// E2: 水面流れ矢じりの基準寸法（グループの scale.x で流速に応じて伸び縮みする）
+const ARROW_SHAFT_LEN = 20; // 軸（箱）の長さ
+const ARROW_HEAD_LEN = 14; // 頭（コーン）の高さ。合計が基準全長
+
 export class PongScene {
   private readonly renderer: THREE.WebGLRenderer;
   private readonly scene: THREE.Scene;
@@ -37,8 +42,11 @@ export class PongScene {
   private readonly ballSeamMat: THREE.MeshStandardMaterial; // スピンを可視化するボール表面のマーカー素材
   private readonly playerMesh: THREE.Mesh;
   private readonly aiMesh: THREE.Mesh;
-  private readonly windGroup: THREE.Group; // E: 乱流の吹き出し表示（テーブル上・装飾のみ）
-  private readonly windMat: THREE.MeshStandardMaterial;
+  private readonly windGroup: THREE.Group; // E2: 水面流れのスパース矢じり（テーブル上・装飾のみ）
+  private readonly arrowShaftGeo: THREE.BoxGeometry;
+  private readonly arrowHeadGeo: THREE.ConeGeometry;
+  private readonly arrowMat: THREE.MeshStandardMaterial;
+  private readonly waterMesh: THREE.Mesh; // E2: 水帯のスラブ（半透明。テーブル上・装飾のみ）
   private hopPhase = 0; // Y バウンド演出の位相（0..1）
   private prevInFlight = false; // サーブ開始時に位相をリセットするための前フレーム状態
   private lastNow = 0;
@@ -141,17 +149,19 @@ export class PongScene {
     }
     this.scene.add(this.ballMesh);
 
-    // E: 乱流の吹き出し（テーブル上・手前側に固定。+gravityY は +X / sim.y増加側へ吹く）
+    // E2: 水帯のスラブ（テーブル上に sim y ∈ [waterY, H] を覆う半透明板。位置・幅は update() で g.waterY から）
+    this.waterMesh = new THREE.Mesh(
+      new THREE.BoxGeometry(H, 4, W),
+      new THREE.MeshStandardMaterial({ color: 0x3f8fd6, transparent: true, opacity: 0.3, roughness: 0.25 }),
+    );
+    this.waterMesh.position.set(0, 2, 0); // update() が scale/position を水帯幅に合わせる（未同期時は 0 に見える）
+    this.scene.add(this.waterMesh);
+
+    // E2: 水面流れのスパース矢じり（+X を向く基準長 ARROW_LEN のグループを game.flowArrows 分だけ動的生成する）
     this.windGroup = new THREE.Group();
-    this.windMat = new THREE.MeshStandardMaterial({ color: 0x7fdfff, transparent: true, opacity: 0.5 });
-    const windShaft = new THREE.Mesh(new THREE.BoxGeometry(86, 3, 5), this.windMat);
-    windShaft.position.x = 43; // グループ原点（矢じり側の尾）を軸に scale.x で伸び縮みする
-    const windHead = new THREE.Mesh(new THREE.ConeGeometry(7, 24, 12), this.windMat);
-    windHead.rotation.z = -Math.PI / 2; // コーンの +Y を +X（矢じりの先）へ向ける
-    windHead.position.x = 98;
-    this.windGroup.add(windShaft, windHead);
-    this.windGroup.position.set(0, 3, 210); // ネット（z=0）とプレイヤーパドル（z≈+417）の間
-    this.windGroup.visible = false;
+    this.arrowShaftGeo = new THREE.BoxGeometry(ARROW_SHAFT_LEN, 3, 5);
+    this.arrowHeadGeo = new THREE.ConeGeometry(7, ARROW_HEAD_LEN, 12);
+    this.arrowMat = new THREE.MeshStandardMaterial({ color: 0xbfe6ff, transparent: true, opacity: 0.75 });
     this.scene.add(this.windGroup);
 
     // パドル（X 方向に長さ PADDLE_H、奥行き PADDLE_W。z はシムの PX/AX から固定）
@@ -211,19 +221,53 @@ export class PongScene {
 
     this.ballMesh.position.set(toWorldX(b.y), BALL_R + bounceY, toWorldZ(b.x));
 
-    // E: 乱流の吹き出し（+gravityY は +X / sim.y増加側へ吹く。無風時は非表示）
-    const w = g.gravityY / TURB_MAX_G;
-    const aw = Math.abs(w);
-    this.windGroup.visible = playing && aw >= 0.06;
-    if (this.windGroup.visible) {
-      this.windGroup.scale.x = (w > 0 ? 1 : -1) * Math.max(aw, 0.15);
-      this.windMat.opacity = 0.3 + 0.45 * Math.min(1, aw);
+    // E2: 水帯スラブ（幅 = H - waterY を世界 X 方向に。未同期の waterY=H では見えない）
+    const dWater = H - g.waterY;
+    this.waterMesh.scale.x = Math.max(dWater / H, 0);
+    this.waterMesh.position.set(toWorldX(g.waterY + dWater / 2), 2, 0);
+
+    // E2: ボールが浸水中は青みにかすかに色を変える（見た目専用。シミュレーションには影響しない）
+    const subF = Math.min(Math.max((b.y + BALL_R - g.waterY) / (2 * BALL_R), 0), 1);
+    (this.ballMesh.material as THREE.MeshStandardMaterial).color.setRGB(1 - 0.3 * subF, 1 - 0.15 * subF, 1);
+
+    // E2: 水面流れの矢じり（game.flowArrows の数に合わせて動的生成。流れがほぼゼロでは非表示）
+    const probes = g.flowArrows;
+    while (this.windGroup.children.length < probes.length) {
+      this.windGroup.add(this.makeArrow());
+    }
+    for (let i = 0; i < probes.length; i++) {
+      const p = probes[i];
+      const m = this.windGroup.children[i] as THREE.Group;
+      const mag = Math.hypot(p.fx, p.fy);
+      if (!playing || mag < 0.15) {
+        m.visible = false;
+        continue;
+      }
+      m.visible = true;
+      // sim の流れ (fx,fy) → 世界の方向：+simY=+worldX、+simX=-worldZ（yaw θ: cosθ=fy, sinθ=fx）
+      m.position.set(toWorldX(p.y), 4, toWorldZ(p.x));
+      m.rotation.y = Math.atan2(p.fx, p.fy);
+      // 流速に応じた見かけの長さ（px/フレーム@60fps → ワールド長）
+      const len = Math.min(Math.max(mag * 22, 12), 55);
+      m.scale.set(len / (ARROW_SHAFT_LEN + ARROW_HEAD_LEN), 1, 1);
     }
 
     // 非プレイ中も時刻は最新に保つ（復帰時の dt スパイク防止）
     this.lastNow = now;
 
     this.renderer.render(this.scene, this.camera);
+  }
+
+  // E2: +X を向く基準長（ARROW_SHAFT_LEN+ARROW_HEAD_LEN）の矢じりグループを1つ作る
+  private makeArrow(): THREE.Group {
+    const g = new THREE.Group();
+    const shaft = new THREE.Mesh(this.arrowShaftGeo, this.arrowMat);
+    shaft.position.x = ARROW_SHAFT_LEN / 2; // グループ原点（矢じりの尾）を軸に scale.x で伸び縮みする
+    const head = new THREE.Mesh(this.arrowHeadGeo, this.arrowMat);
+    head.rotation.z = -Math.PI / 2; // コーンの +Y を +X（矢じりの先）へ向ける
+    head.position.x = ARROW_SHAFT_LEN + ARROW_HEAD_LEN / 2;
+    g.add(shaft, head);
+    return g;
   }
 
   // コンテナサイズ変化時のリサイズ（アスペクト比と描画バッファを更新）

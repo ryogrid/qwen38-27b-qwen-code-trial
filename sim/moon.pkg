@@ -1,5 +1,8 @@
 import {
   "moonbitlang/core/math",
+  // ネイティブ側ベンチ（sim_bench_wbtest.mbt）の @bench.monotonic_clock_* 用。
+  // ブラウザビルドでも std/bench/bench.mi が同梱されているため無害。
+  "moonbitlang/core/bench",
 }
 
 options(
@@ -17,7 +20,9 @@ options(
         "vx",
         "vy",
         "spin",
-        "gravity_y",
+        "water_y",
+        "flow_sample_x",
+        "flow_sample_y",
         "p_score",
         "a_score",
         "reset_scores",

@@ -24,7 +24,9 @@ pub fn ball_y() -> Double
 
 pub fn center_paddles() -> Unit
 
-pub fn gravity_y() -> Double
+pub fn flow_sample_x(Double, Double) -> Double
+
+pub fn flow_sample_y(Double, Double) -> Double
 
 pub fn p_score() -> Int
 
@@ -43,6 +45,8 @@ pub fn step(Int, Double, Bool, Bool, Double, Bool) -> Int
 pub fn vx() -> Double
 
 pub fn vy() -> Double
+
+pub fn water_y() -> Double
 
 // Errors
 

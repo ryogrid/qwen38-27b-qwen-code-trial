@@ -71,15 +71,46 @@ const SPIN_DECAY_RATE_D : Double = 0.004 // 飛行中のスピン減衰率（除
 ///|
 const WALL_SPIN_KEEP_D : Double = 0.8 // 上下壁リバウンド時のスピン残存率
 
-// ===== E: 重力乱流の調整値 =====
+// ===== W: 浸水ウォーターバンド・水面流れの調整値（px/フレーム@60fps 基準。既存速度定数と同一単位！）=====
 
 ///|
-const TURB_MAX_GY_D : Double = 0.06 // 最大乱流加速度 px/フレーム^2（@60fps 基準。正=画面下へ引く）
-                                             // 貫通時間≈130フレームで積算すると Δvy≲8px/f・横ブレ≲70px 程度に収まり、
-                                             // ボール速度を支配せず（MAX_BALL_SPEED クランプが効きすぎない）曲がりとして感じられる
+const WATER_DEPTH_D : Double = 104.0 // ウォーターバンド深さ（H の 20%）。水面線 y = H_D - この値
 
 ///|
-const TURB_OMEGA_D : Double = 0.035 // 乱流位相の毎フレーム進み具合（キャリア周期≈3秒、嵐ウィンドウ≈27秒）
+const FLUID_N_DEFAULT : Int = 30 // 水面流れ格子の x 方向列数（step() コストベンチで最終確定）
+
+///|
+const FLUID_M_DEFAULT : Int = 5 // ウォーターバンド内 y 方向行数
+
+///|
+const FLOW_DIFF_K_D : Double = 0.24 // ジャコビ拡散係数：v ← v + K*(近傍平均 - v)。K ≤ 0.5 で安定
+
+///|
+const FLOW_DECAY_RATE_D : Double = 0.010 // 流れの毎フレーム減衰率（除算形、dt 大でも安定。半減≈69フレーム≈1.2秒）
+
+///|
+const FLOW_MAX_D : Double = 8.0 // |flow| の上限 px/フレーム@60fps（有界性保証。MAX_BALL_SPEED_D より小さい）
+
+///|
+const DRAG_REL_K_D : Double = 0.015 // 水面流れへの相対抗力ゲイン（次元なし。τ≈67フレームで球速を殺しすぎず、流場へ緩やかに引き寄せる）
+
+///|
+const DRAG_ABS_RATE_D : Double = 0.002 // 浸水時の絶対減衰率（除算形、f=1 で半減≈347フレーム。相対項と併せて球の浮上・再開行を妨げない弱め）
+
+///|
+const BUOY_K_D : Double = 0.03 // 浮力加速度 px/フレーム²@60fps（沈み込み分 f に比例。抗力と釣り合い終端上昇速度≈BUOY_K/(DRAG_REL+DRAG_ABS)≈1.7px/f、球は水面へ戻り底に張り付かない）
+
+///|
+const DROP_INTERVAL_MIN_D : Double = 90.0 // ドロップ間隔の下限 フレーム（≈1.5秒）
+
+///|
+const DROP_INTERVAL_VAR_D : Double = 120.0 // ドロップ間隔の乱数幅（次回 = min + rnd()*var、xorshift32 で決定的）
+
+///|
+const DROP_RADIUS_D : Double = 64.0 // ドロップ着水の半径方向影響半径 px
+
+///|
+const DROP_IMPULSE_D : Double = 5.0 // 着水中心のピーク衝撃 px/フレーム@60fps（直線減衰、FLOW_MAX_D でクランプ）
 
 ///|
 // ===== RNG（決定的 xorshift32。seed() でシード固定可） =====
@@ -119,7 +150,13 @@ priv struct Sim {
   mut spin : Double // ボールの回転（マグヌス効果。+ は右進ボールを下画面側へ曲げる）
   mut player_vel : Double // プレイヤーパドルの直前フレーム速度 px/フレーム@60fps（スピン付与用）
   mut ai_vel : Double // AI パドルの直前フレーム速度 px/フレーム@60fps（スピン付与用）
-  mut turb_phase : Double // 乱流位相（E。毎ステップ決定的に前進、rng は消費しない）
+  mut fl_n : Int // 水面流れ格子の x 方向列数（ベンチで最終確定する値）
+  mut fl_m : Int // ウォーターバンド内 y 方向行数
+  mut fl_x_a : Array[Double] // 流れ場 x 成分 px/フレーム@60fps。idx = j*fl_n+i
+  mut fl_y_a : Array[Double] // 流れ場 y 成分（同上レイアウト）
+  mut tmp_x_a : Array[Double] // ジャコビ法スクリッチ（x 成分）
+  mut tmp_y_a : Array[Double] // スクリッチ（y 成分）
+  mut drop_timer : Double // 次のドロップ着水までのフレーム数（<=0 で発生し再スケジュール）
   mut player_y : Double // プレイヤーパドル中心 y
   mut ai_y : Double // AI パドル中心 y
   mut serve_timer : Double // ボール発射までの待機フレーム（<=0 で launch）
@@ -145,7 +182,13 @@ fn make_sim() -> Sim {
     spin: 0.0,
     player_vel: 0.0,
     ai_vel: 0.0,
-    turb_phase: 0.0, // ゲーム開始時は凪から嵐へ（storm 包絡が 0 から立ち上がる）
+    fl_n: FLUID_N_DEFAULT,
+    fl_m: FLUID_M_DEFAULT,
+    fl_x_a: Array::make(FLUID_N_DEFAULT * FLUID_M_DEFAULT, 0.0),
+    fl_y_a: Array::make(FLUID_N_DEFAULT * FLUID_M_DEFAULT, 0.0),
+    tmp_x_a: Array::make(FLUID_N_DEFAULT * FLUID_M_DEFAULT, 0.0),
+    tmp_y_a: Array::make(FLUID_N_DEFAULT * FLUID_M_DEFAULT, 0.0),
+    drop_timer: DROP_INTERVAL_MIN_D + DROP_INTERVAL_VAR_D / 2, // ≈2.5秒後に最初の着水（決定的）
     player_y: H_D / 2,
     ai_y: H_D / 2,
     serve_timer: 0.0, // TS コンストラクタも 0（実際の待機は prepareServe で開始）
@@ -182,12 +225,12 @@ pub fn seed(s : Int) -> Unit {
       s.reinterpret_as_uint()
     },
   )
-  // A/E: 同じシードから同じ「天候・スピン」の状態を再現するため、
+  // A: 同じシードから同じ「スピン」の状態を再現するため、
   // 前回実行の残り（リプレイ再開・テスト間の分離）を初期値に戻す
   g.spin = 0.0
   g.player_vel = 0.0
   g.ai_vel = 0.0
-  g.turb_phase = 0.0
+  init_fluid_grid(FLUID_N_DEFAULT, FLUID_M_DEFAULT) // 水面を無垢に（+ ドロップスケジューラも決定的にリセット）
 }
 
 ///|
@@ -255,7 +298,7 @@ pub fn step(
   let ai_speed_ = if idx == 0 { 3.4 } else if idx == 2 { 6.4 } else { 4.6 }
   let ai_error_ = if idx == 0 { 52.0 } else if idx == 2 { 10.0 } else { 28.0 }
 
-  update_weather(dt) // E: サーブ待機中も天候は進む（ポイント間の間欠でも連続する）
+  update_fluid(dt) // W: サーブ待機中も水面は進む（ポイント間の間欠でも連続する）
   update_player(dt, key_left, key_right, mouse_y, use_mouse_follow)
   update_ai(ai_speed_, dt)
 
@@ -308,25 +351,198 @@ pub fn spin() -> Double {
   g.spin
 }
 
-// 乱流の位相を前進させる（step の先頭で毎フレーム呼ぶ）
+// ===== W: 浸水ウォーターバンド・水面流れ（決定的。乱数の消費は rng のみ） =====
 
-fn update_weather(dt : Double) -> Unit {
-  g.turb_phase += TURB_OMEGA_D * dt
+///|
+pub fn water_y() -> Double {
+  H_D - WATER_DEPTH_D // 水面線（sim y）。ウォーターバンドは [water_y(), H_D]
 }
 
-// 現在の乱流重力 px/フレーム^2（正=画面下へ引く）。レンダリングは gravity_y() で読む。
-// 嵐包絡（≈27秒周期）がキャリア 2 成分を緩慢に変調する有界な突風列。
-// rng を消費しないため天候はシードに依存しない（位相のみで決まる）。
+// 水面流れ格子をゼロに初期化・再構築し、ドロップスケジューラもリセットする。
+// ベンチマークが解像度を切り替えるため直接呼ぶ（白箱アクセス）
 
-fn current_gy() -> Double {
-  let phase = g.turb_phase
-  let storm = 0.5 - 0.5 * @math.cos(0.11 * phase)
-  TURB_MAX_GY_D * storm * (0.62 * @math.sin(phase) + 0.38 * @math.sin(1.7 * phase + 2.4))
+///|
+fn init_fluid_grid(n : Int, m : Int) -> Unit {
+  g.fl_n = n
+  g.fl_m = m
+  let len = n * m
+  g.fl_x_a = Array::make(len, 0.0)
+  g.fl_y_a = Array::make(len, 0.0)
+  g.tmp_x_a = Array::make(len, 0.0)
+  g.tmp_y_a = Array::make(len, 0.0)
+  g.drop_timer = DROP_INTERVAL_MIN_D + DROP_INTERVAL_VAR_D / 2 // 最初の着水は ≈(min+var/2) フレーム後
+}
+
+// 毎フレームの水更新（step から呼ぶ）。固定順序：ドロップスケジューラ → ジャコビ拡散スイープ → 減衰・クランプ
+
+///|
+fn update_fluid(dt : Double) -> Unit {
+  g.drop_timer -= dt
+  if g.drop_timer <= 0.0 {
+    spawn_droplet() // 着水は rng を消費する（xorshift32 で決定的）
+    g.drop_timer = DROP_INTERVAL_MIN_D + rnd() * DROP_INTERVAL_VAR_D
+  }
+
+  let n = g.fl_n
+  let m = g.fl_m
+  let len = n * m
+  let fx : Array[Double] = g.fl_x_a
+  let fy : Array[Double] = g.fl_y_a
+  let tx : Array[Double] = g.tmp_x_a
+  let ty : Array[Double] = g.tmp_y_a
+
+  // ジャコビ拡散スイープ：v ← v + K*(4近傍平均 - v)。バンド端は静止（ゼロ）扱いで流れが縁へ漏れ失う。
+  // K ≤ 0.5 で非条件安定、1 フレーム 1 スイープ
+  let k = FLOW_DIFF_K_D
+  for j in 0..<m {
+    let row = j * n
+    for i in 0..<n {
+      let idx = row + i
+      let lft_x : Double = if i > 0 { fx[idx - 1] } else { 0.0 }
+      let rgt_x : Double = if i < n - 1 { fx[idx + 1] } else { 0.0 }
+      let up_x : Double = if j > 0 { fx[idx - n] } else { 0.0 }
+      let dn_x : Double = if j < m - 1 { fx[idx + n] } else { 0.0 }
+      tx[idx] = fx[idx] + k * ((lft_x + rgt_x + up_x + dn_x) / 4.0 - fx[idx])
+      let lft_y : Double = if i > 0 { fy[idx - 1] } else { 0.0 }
+      let rgt_y : Double = if i < n - 1 { fy[idx + 1] } else { 0.0 }
+      let up_y : Double = if j > 0 { fy[idx - n] } else { 0.0 }
+      let dn_y : Double = if j < m - 1 { fy[idx + n] } else { 0.0 }
+      ty[idx] = fy[idx] + k * ((lft_y + rgt_y + up_y + dn_y) / 4.0 - fy[idx])
+    }
+  }
+  let old_x : Array[Double] = fx
+  let old_y : Array[Double] = fy
+  g.fl_x_a = tx
+  g.fl_y_a = ty
+  g.tmp_x_a = old_x // 旧フィールドバッファが次ラウンドのスクリッチになる
+  g.tmp_y_a = old_y
+
+  // 減衰（除数形式なので dt が大きくても安定）と |v| 上限
+  let damp = 1.0 / (1.0 + FLOW_DECAY_RATE_D * dt)
+  for idx in 0..<len {
+    let xv : Double = g.fl_x_a[idx] * damp
+    let yv : Double = g.fl_y_a[idx] * damp
+    let sp = (xv * xv + yv * yv).sqrt()
+    if sp > FLOW_MAX_D {
+      let s_ = FLOW_MAX_D / sp
+      g.fl_x_a[idx] = xv * s_
+      g.fl_y_a[idx] = yv * s_
+    } else {
+      g.fl_x_a[idx] = xv
+      g.fl_y_a[idx] = yv
+    }
+  }
+}
+
+// ドロップ着水：ウォーターバンド内の一様ランダムな点に、距離で減衰する半径方向の衝撃を近傍セルへ加算
+
+///|
+fn spawn_droplet() -> Unit {
+  let n = g.fl_n
+  let m = g.fl_m
+  let cx : Double = rnd() * W_D // x ∈ [0, W]
+  let wy = water_y()
+  let cy : Double = wy + rnd() * WATER_DEPTH_D // y ∈ [WY, H]
+
+  // 影響セル範囲（半径 R を格子座標に変換、外側 1 セル余白）
+  let dx_cell = W_D / n.to_double()
+  let dy_cell = WATER_DEPTH_D / m.to_double()
+  let ci0 : Int = ((cx - DROP_RADIUS_D) / dx_cell).floor().to_int()
+  let ci1 : Int = ((cx + DROP_RADIUS_D) / dx_cell).ceil().to_int()
+  let cj0 : Int = ((cy - wy - DROP_RADIUS_D) / dy_cell).floor().to_int()
+  let cj1 : Int = ((cy - wy + DROP_RADIUS_D) / dy_cell).ceil().to_int()
+
+  let j_lo : Int = if cj0 < 0 { 0 } else { cj0 }
+  let j_hi : Int = if cj1 > m { m } else { cj1 }
+  for j in j_lo..<j_hi {
+    let row = j * n
+    let i_lo : Int = if ci0 < 0 { 0 } else { ci0 }
+    let i_hi : Int = if ci1 > n { n } else { ci1 }
+    for i in i_lo..<i_hi {
+      // セル中心からの距離と方向（セル中心座標）
+      let sx_ : Double = (i.to_double() + 0.5) * dx_cell - cx
+      let sy_ : Double = wy + (j.to_double() + 0.5) * dy_cell - cy
+      let dist = (sx_ * sx_ + sy_ * sy_).sqrt()
+      if dist < DROP_RADIUS_D {
+        let wgt : Double = 1.0 - dist / DROP_RADIUS_D // 中心で最大、縁でゼロ
+        let imp = DROP_IMPULSE_D * wgt
+        if dist > 0.0001 {
+          g.fl_x_a[row + i] += imp * (sx_ / dist)
+          g.fl_y_a[row + i] += imp * (sy_ / dist)
+        } else {
+          // 着水点がセル中心と完全に一致した場合は上方向（-y）へ抜ける
+          g.fl_y_a[row + i] -= imp
+        }
+      }
+    }
+  }
+
+  // 衝撃直後に FLOW_MAX_D でクランプ（有界性保証）
+  let len = n * m
+  for idx in 0..<len {
+    let xv : Double = g.fl_x_a[idx]
+    let yv : Double = g.fl_y_a[idx]
+    let sp = (xv * xv + yv * yv).sqrt()
+    if sp > FLOW_MAX_D {
+      let s_ = FLOW_MAX_D / sp
+      g.fl_x_a[idx] = xv * s_
+      g.fl_y_a[idx] = yv * s_
+    }
+  }
+}
+
+// (x, y) の水面流れの双線形サンプリング。ウォーターバンドの外はゼロベクトル
+
+///|
+fn bilinear_flow_at(x : Double, y : Double) -> (Double, Double) {
+  let n = g.fl_n.to_double()
+  let m = g.fl_m.to_double()
+  if x < 0.0 || x > W_D || y <= water_y() || y > H_D {
+    return (0.0, 0.0) // バンド外（水面以上含む）は流れなし
+  }
+
+  let u : Double = clamp_d(x / W_D * n - 0.5, 0.0, n - 1.0)
+  let wy = water_y()
+  let v : Double = clamp_d((y - wy) / WATER_DEPTH_D * m - 0.5, 0.0, m - 1.0)
+
+  let ni : Int = g.fl_n
+  let nj : Int = g.fl_m
+  let i0 : Int = u.floor().to_int()
+  let j0 : Int = v.floor().to_int()
+  let i1 : Int = if i0 < ni - 1 { i0 + 1 } else { ni - 1 } // 端セルでは隣を自分自身へ（fu=0 で安全）
+  let j1 : Int = if j0 < nj - 1 { j0 + 1 } else { nj - 1 }
+  let fu : Double = u - i0.to_double()
+  let fv : Double = v - j0.to_double()
+
+  let fx = g.fl_x_a
+  let fy = g.fl_y_a
+  let x00 = fx[j0 * g.fl_n + i0]
+  let x10 = fx[j0 * g.fl_n + i1]
+  let x01 = fx[j1 * g.fl_n + i0]
+  let x11 = fx[j1 * g.fl_n + i1]
+  let y00 = fy[j0 * g.fl_n + i0]
+  let y10 = fy[j0 * g.fl_n + i1]
+  let y01 = fy[j1 * g.fl_n + i0]
+  let y11 = fy[j1 * g.fl_n + i1]
+
+  let top : Double = x00 + (x10 - x00) * fu
+  let bot : Double = x01 + (x11 - x01) * fu
+  let out_x : Double = top + (bot - top) * fv
+  let ty_ : Double = y00 + (y10 - y00) * fu
+  let by_ : Double = y01 + (y11 - y01) * fu
+  let out_y : Double = ty_ + (by_ - ty_) * fv
+
+  (out_x, out_y)
 }
 
 ///|
-pub fn gravity_y() -> Double {
-  current_gy()
+pub fn flow_sample_x(x : Double, y : Double) -> Double {
+  bilinear_flow_at(x, y).0 // レンダリング（疎矢印）用に x 成分を公開
+}
+
+///|
+pub fn flow_sample_y(x : Double, y : Double) -> Double {
+  bilinear_flow_at(x, y).1 // レンダリング（疎矢印）用に y 成分を公開
 }
 
 // スコア読み取り（JS 側は表示のみ。権威はこのモジュール側）
@@ -491,9 +707,27 @@ fn update_ball(dt : Double) -> Int {
     g.spin /= 1.0 + SPIN_DECAY_RATE_D * dt
   }
 
-  // E: 重力乱流を加速度として適用（px/フレーム^2）。突風が速度を MAX_BALL_SPEED_D まで
-  // 押し上げうるため、適用後に合成速度でクランプしてトンネリング・暴発を防ぐ。
-  g.vy += current_gy() * dt
+  // W: ウォーターバンド結合 — f は球底が水面に触れた瞬間 0、球中心が水面+r 沈むまで 1 へ。
+  let wy_ = water_y()
+  let f_w : Double = clamp_d(
+    (g.ball_y + BALL_R_D - wy_) / (2.0 * BALL_R_D),
+    0.0,
+    1.0,
+  )
+  if f_w > 0.0 {
+    // 浮力：沈み込み分だけ一定の上向き（-y）加速度。下段の減衰と釣り合い、終端上昇速度≈0.8px/f で球は水面へ戻り、底に張り付かない
+    g.vy -= BUOY_K_D * f_w * dt
+    // 相対粘性：球の速度をその点の水の流れへ引き寄せる（係数 < 1 なので無条件安定）
+    let fl : (Double, Double) = bilinear_flow_at(g.ball_x, g.ball_y)
+    let rel_k : Double = clamp_d(DRAG_REL_K_D * dt, 0.0, 0.95)
+    g.vx += rel_k * f_w * (fl.0 - g.vx)
+    g.vy += rel_k * f_w * (fl.1 - g.vy)
+    // 絶対減衰（除数形式、dt が大きくても安定）：相対粘性とマグヌスの過剰エネルギーを放出する
+    let damp : Double = 1.0 / (1.0 + DRAG_ABS_RATE_D * f_w * dt)
+    g.vx *= damp
+    g.vy *= damp
+  }
+  // 水結合後も合成速度でクランプ（トンネリング・暴発防止）
   let sp_now = (g.vx * g.vx + g.vy * g.vy).sqrt()
   if sp_now > MAX_BALL_SPEED_D {
     let k = MAX_BALL_SPEED_D / sp_now

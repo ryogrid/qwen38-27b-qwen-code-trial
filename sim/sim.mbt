@@ -89,10 +89,10 @@ const FLOW_DECAY_RATE_D : Double = 0.010 // 流れの毎フレーム減衰率（
 const FLOW_MAX_D : Double = 8.0 // |flow| の上限 px/フレーム@60fps（有界性保証。MAX_BALL_SPEED_D より小さい）
 
 ///|
-const DRAG_REL_K_D : Double = 0.006 // コート全面ウォーター用：相対抗力ゲイン（次元なし）。流れ追従の均衡速度≈局所流速の 86%（=K/(K+ABS)）で、ボールが明確に水流に押し流される強さ。DRAG_ABS_RATE_D と併せ全減衰 λ≈0.007/フレーム（τ≈143f）、BASE_BALL_SPEED_D のショットでもコート横断に届く到達距離（≈928px）を確保
+const DRAG_REL_K_D : Double = 0.0072 // コート全面ウォーター用：相対抗力ゲイン（次元なし）。流れ追従の均衡速度≈局所流速の 92%（=K/(K+ABS)）で、ボールは明確に水流に運ばれる。DRAG_ABS_RATE_D と併せ全減衰 λ≈0.0078/フレーム（τ≈128f）、初レターンショット（BASE×SPEEDUP≈6.83px/f）の到達距離≈875px でパドル間≈812px を横断可能
 
 ///|
-const DRAG_ABS_RATE_D : Double = 0.001 // 水中での減衰率（除数形式、半減≈693フレーム。減速感は相対項が主役のため小さめ。球のリバウンド・再開行を妨げない）
+const DRAG_ABS_RATE_D : Double = 0.0006 // 水中での純減衰率（除数形式、半減≈1155フレーム。減速の主役は相対項のため小さめ。球のリバウンド・再開行を妨げない）
 
 ///|
 const DROP_INTERVAL_MIN_D : Double = 40.0 // ドロップ間隔の下限 フレーム（≈0.7秒。平均≈1.3秒で頻繁に着水する）
@@ -422,7 +422,9 @@ fn update_fluid(dt : Double) -> Unit {
   }
 }
 
-// ドロップ着水：プール内の一様ランダムな点に、距離で減衰する半径方向の衝撃を近傍セルへ加算
+// ドロップ着水：コート内の一様ランダムな点に、距離で減衰する衝撃を近傍セルへ加算。
+// 横方向（x 成分）のみを与える — 縦方向の流れはボールの軌道を縦に止めかねないため。
+// fy グリッドは常にゼロのまま（flow_sample_y は契約のために残す）。
 
 ///|
 fn spawn_droplet() -> Unit {
@@ -454,8 +456,8 @@ fn spawn_droplet() -> Unit {
         let wgt : Double = 1.0 - dist / DROP_RADIUS_D // 中心で最大、縁でゼロ
         let imp = DROP_IMPULSE_D * wgt
         if dist > 0.0001 {
+          // 横方向成分だけ加算（縦方向の攪拌は意図的に与えない）
           g.fl_x_a[row + i] += imp * (sx_ / dist)
-          g.fl_y_a[row + i] += imp * (sy_ / dist)
         } else {
           // 完全一致時は固定方向（-x）へ抜ける（決定的性のため）
           g.fl_x_a[row + i] -= imp

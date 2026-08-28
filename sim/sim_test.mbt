@@ -127,12 +127,12 @@ test "reset_scores は両スコアを0に戻す" {
 ///|
 // 黒箱プローブ：ウォーターバンド全体を粗い格子でサンプリングし、全ポイントの最大 |v| を返す。
 fn band_flow_probe() -> Double {
-  let wy = water_y()
+  let wx_ = water_x()
   let mut mx : Double = 0.0
-  for i in 0..<5 { // x ∈ [50, 242, 434, 626, 818]
-    let px : Double = 50.0 + (i * 192).to_double()
-    for j in 0..<4 { // y = 水面+10 .. 水面+100（水深 104 の内側）
-      let py : Double = wy + 10.0 + (j * 30).to_double()
+  for i in 0..<4 { // x = 水面+10 .. 水面+130（水深 180 の内側）
+    let px : Double = wx_ + 10.0 + (i * 40).to_double()
+    for j in 0..<5 { // y ∈ [26, 494]（上下壁から十分距離のある高さ）
+      let py : Double = 26.0 + (j * 117).to_double()
       let fxv : Double = flow_sample_x(px, py)
       let fyv : Double = flow_sample_y(px, py)
       let m_ = (fxv * fxv + fyv * fyv).sqrt()
@@ -188,7 +188,7 @@ test "異なるシードでは水面流れが異なる" {
 }
 
 ///|
-test "水面より上では流れは常にゼロ" {
+test "水面線よりコート側では流れは常にゼロ" {
   seed(321)
   prepare_serve(-1.0)
   center_paddles()
@@ -201,11 +201,11 @@ test "水面より上では流れは常にゼロ" {
     ev = step(2, 1.0, false, false, 260.0, true)
     assert_eq(
       (
-        flow_sample_x(450.0, water_y() - 10.0),
-        flow_sample_y(450.0, water_y() - 10.0),
+        flow_sample_x(water_x() - 10.0, 260.0),
+        flow_sample_y(water_x() - 10.0, 260.0),
       ),
       (0.0, 0.0),
-    ) // バンド外（水面以上）は常にゼロベクトル
+    ) // バンド外（水面線よりコート側）は常にゼロベクトル
     i += 1
   }
 }

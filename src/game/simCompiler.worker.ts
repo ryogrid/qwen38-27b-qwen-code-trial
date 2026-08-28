@@ -89,7 +89,7 @@ export const EXPORTED_FUNCTIONS = [
   "vx",
   "vy",
   "spin",
-  "water_y",
+  "water_x",
   "flow_sample_x",
   "flow_sample_y",
   "p_score",

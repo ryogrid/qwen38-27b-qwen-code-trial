@@ -7,7 +7,7 @@ interface SimView {
   player: { y: number };
   ai: { y: number };
   ball: { x: number; y: number; vx: number; vy: number; spin: number };
-  waterY: number; // 水面線（sim y 座標）。描画のみ
+  waterX: number; // 水面線（sim x 座標。プールは [waterX, W] × 全高）。描画のみ
   flowArrows: { x: number; y: number; fx: number; fy: number }[]; // 水面流れのプロブ点。描画のみ
 }
 
@@ -149,7 +149,7 @@ export class PongScene {
     }
     this.scene.add(this.ballMesh);
 
-    // E2: 水帯のスラブ（テーブル上に sim y ∈ [waterY, H] を覆う半透明板。位置・幅は update() で g.waterY から）
+    // E2: プールスラブ（テーブル上に sim x ∈ [waterX, W] × 全高を覆う半透明板。位置・奥行きは update() で g.waterX から）
     this.waterMesh = new THREE.Mesh(
       new THREE.BoxGeometry(H, 4, W),
       new THREE.MeshStandardMaterial({ color: 0x3f8fd6, transparent: true, opacity: 0.3, roughness: 0.25 }),
@@ -221,13 +221,13 @@ export class PongScene {
 
     this.ballMesh.position.set(toWorldX(b.y), BALL_R + bounceY, toWorldZ(b.x));
 
-    // E2: 水帯スラブ（幅 = H - waterY を世界 X 方向に。未同期の waterY=H では見えない）
-    const dWater = H - g.waterY;
-    this.waterMesh.scale.x = Math.max(dWater / H, 0);
-    this.waterMesh.position.set(toWorldX(g.waterY + dWater / 2), 2, 0);
+    // E2: プールスラブ（奥行き = W - waterX を世界 Z 方向に。未同期の waterX=W では見えない）
+    const dWater = W - g.waterX;
+    this.waterMesh.scale.z = Math.max(dWater / W, 0);
+    this.waterMesh.position.set(0, 2, toWorldZ(g.waterX + dWater / 2));
 
     // E2: ボールが浸水中は青みにかすかに色を変える（見た目専用。シミュレーションには影響しない）
-    const subF = Math.min(Math.max((b.y + BALL_R - g.waterY) / (2 * BALL_R), 0), 1);
+    const subF = Math.min(Math.max((b.x + BALL_R - g.waterX) / (2 * BALL_R), 0), 1);
     (this.ballMesh.material as THREE.MeshStandardMaterial).color.setRGB(1 - 0.3 * subF, 1 - 0.15 * subF, 1);
 
     // E2: 水面流れの矢じり（game.flowArrows の数に合わせて動的生成。流れがほぼゼロでは非表示）

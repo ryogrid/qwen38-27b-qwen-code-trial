@@ -46,7 +46,7 @@ pub fn vx() -> Double
 
 pub fn vy() -> Double
 
-pub fn water_y() -> Double
+pub fn water_x() -> Double
 
 // Errors
 

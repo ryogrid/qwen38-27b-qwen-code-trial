@@ -74,13 +74,13 @@ const WALL_SPIN_KEEP_D : Double = 0.8 // 上下壁リバウンド時のスピン
 // ===== W: 浸水ウォーターバンド・水面流れの調整値（px/フレーム@60fps 基準。既存速度定数と同一単位！）=====
 
 ///|
-const WATER_DEPTH_D : Double = 104.0 // ウォーターバンド深さ（H の 20%）。水面線 y = H_D - この値
+const WATER_DEPTH_D : Double = 180.0 // ウォーターバンド深さ（W の 20%）。水面線 x = W_D - この値
 
 ///|
-const FLUID_N_DEFAULT : Int = 30 // 水面流れ格子の x 方向列数（step() コストベンチで最終確定）
+const FLUID_N_DEFAULT : Int = 30 // 水面流れ格子の H 方向（縦軸）セル数（step() コストベンチで最終確定）
 
 ///|
-const FLUID_M_DEFAULT : Int = 5 // ウォーターバンド内 y 方向行数
+const FLUID_M_DEFAULT : Int = 9 // ウォーターバンド内 x 方向奥行き行数（1 セル≈20px、N 方向とほぼ等方）
 
 ///|
 const FLOW_DIFF_K_D : Double = 0.24 // ジャコビ拡散係数：v ← v + K*(近傍平均 - v)。K ≤ 0.5 で安定
@@ -150,8 +150,8 @@ priv struct Sim {
   mut spin : Double // ボールの回転（マグヌス効果。+ は右進ボールを下画面側へ曲げる）
   mut player_vel : Double // プレイヤーパドルの直前フレーム速度 px/フレーム@60fps（スピン付与用）
   mut ai_vel : Double // AI パドルの直前フレーム速度 px/フレーム@60fps（スピン付与用）
-  mut fl_n : Int // 水面流れ格子の x 方向列数（ベンチで最終確定する値）
-  mut fl_m : Int // ウォーターバンド内 y 方向行数
+  mut fl_n : Int // 水面流れ格子の H 方向（縦軸）セル数（ベンチで最終確定する値）
+  mut fl_m : Int // ウォーターバンド内 x 方向奥行き行数
   mut fl_x_a : Array[Double] // 流れ場 x 成分 px/フレーム@60fps。idx = j*fl_n+i
   mut fl_y_a : Array[Double] // 流れ場 y 成分（同上レイアウト）
   mut tmp_x_a : Array[Double] // ジャコビ法スクリッチ（x 成分）
@@ -354,8 +354,8 @@ pub fn spin() -> Double {
 // ===== W: 浸水ウォーターバンド・水面流れ（決定的。乱数の消費は rng のみ） =====
 
 ///|
-pub fn water_y() -> Double {
-  H_D - WATER_DEPTH_D // 水面線（sim y）。ウォーターバンドは [water_y(), H_D]
+pub fn water_x() -> Double {
+  W_D - WATER_DEPTH_D // 水面線（sim x）。ウォーターバンドは [water_x(), W_D]
 }
 
 // 水面流れ格子をゼロに初期化・再構築し、ドロップスケジューラもリセットする。
@@ -434,23 +434,23 @@ fn update_fluid(dt : Double) -> Unit {
   }
 }
 
-// ドロップ着水：ウォーターバンド内の一様ランダムな点に、距離で減衰する半径方向の衝撃を近傍セルへ加算
+// ドロップ着水：プール内の一様ランダムな点に、距離で減衰する半径方向の衝撃を近傍セルへ加算
 
 ///|
 fn spawn_droplet() -> Unit {
   let n = g.fl_n
   let m = g.fl_m
-  let cx : Double = rnd() * W_D // x ∈ [0, W]
-  let wy = water_y()
-  let cy : Double = wy + rnd() * WATER_DEPTH_D // y ∈ [WY, H]
+  let wx_ = water_x()
+  let cx : Double = wx_ + rnd() * WATER_DEPTH_D // x ∈ [WX, W]
+  let cy : Double = rnd() * H_D // y ∈ [0, H]
 
   // 影響セル範囲（半径 R を格子座標に変換、外側 1 セル余白）
-  let dx_cell = W_D / n.to_double()
-  let dy_cell = WATER_DEPTH_D / m.to_double()
-  let ci0 : Int = ((cx - DROP_RADIUS_D) / dx_cell).floor().to_int()
-  let ci1 : Int = ((cx + DROP_RADIUS_D) / dx_cell).ceil().to_int()
-  let cj0 : Int = ((cy - wy - DROP_RADIUS_D) / dy_cell).floor().to_int()
-  let cj1 : Int = ((cy - wy + DROP_RADIUS_D) / dy_cell).ceil().to_int()
+  let dy_cell = H_D / n.to_double()
+  let dx_cell = WATER_DEPTH_D / m.to_double()
+  let ci0 : Int = ((cy - DROP_RADIUS_D) / dy_cell).floor().to_int()
+  let ci1 : Int = ((cy + DROP_RADIUS_D) / dy_cell).ceil().to_int()
+  let cj0 : Int = ((cx - wx_ - DROP_RADIUS_D) / dx_cell).floor().to_int()
+  let cj1 : Int = ((cx - wx_ + DROP_RADIUS_D) / dx_cell).ceil().to_int()
 
   let j_lo : Int = if cj0 < 0 { 0 } else { cj0 }
   let j_hi : Int = if cj1 > m { m } else { cj1 }
@@ -460,8 +460,8 @@ fn spawn_droplet() -> Unit {
     let i_hi : Int = if ci1 > n { n } else { ci1 }
     for i in i_lo..<i_hi {
       // セル中心からの距離と方向（セル中心座標）
-      let sx_ : Double = (i.to_double() + 0.5) * dx_cell - cx
-      let sy_ : Double = wy + (j.to_double() + 0.5) * dy_cell - cy
+      let sx_ : Double = wx_ + (j.to_double() + 0.5) * dx_cell - cx
+      let sy_ : Double = (i.to_double() + 0.5) * dy_cell - cy
       let dist = (sx_ * sx_ + sy_ * sy_).sqrt()
       if dist < DROP_RADIUS_D {
         let wgt : Double = 1.0 - dist / DROP_RADIUS_D // 中心で最大、縁でゼロ
@@ -470,8 +470,8 @@ fn spawn_droplet() -> Unit {
           g.fl_x_a[row + i] += imp * (sx_ / dist)
           g.fl_y_a[row + i] += imp * (sy_ / dist)
         } else {
-          // 着水点がセル中心と完全に一致した場合は上方向（-y）へ抜ける
-          g.fl_y_a[row + i] -= imp
+          // 着水点がセル中心と完全に一致した場合はコート側（-x）へ抜ける
+          g.fl_x_a[row + i] -= imp
         }
       }
     }
@@ -497,13 +497,13 @@ fn spawn_droplet() -> Unit {
 fn bilinear_flow_at(x : Double, y : Double) -> (Double, Double) {
   let n = g.fl_n.to_double()
   let m = g.fl_m.to_double()
-  if x < 0.0 || x > W_D || y <= water_y() || y > H_D {
-    return (0.0, 0.0) // バンド外（水面以上含む）は流れなし
+  let wx_ = water_x()
+  if x <= wx_ || x > W_D || y < 0.0 || y > H_D {
+    return (0.0, 0.0) // バンド外（水面線よりコート側含む）は流れなし
   }
 
-  let u : Double = clamp_d(x / W_D * n - 0.5, 0.0, n - 1.0)
-  let wy = water_y()
-  let v : Double = clamp_d((y - wy) / WATER_DEPTH_D * m - 0.5, 0.0, m - 1.0)
+  let u : Double = clamp_d(y / H_D * n - 0.5, 0.0, n - 1.0)
+  let v : Double = clamp_d((x - wx_) / WATER_DEPTH_D * m - 0.5, 0.0, m - 1.0)
 
   let ni : Int = g.fl_n
   let nj : Int = g.fl_m
@@ -707,16 +707,16 @@ fn update_ball(dt : Double) -> Int {
     g.spin /= 1.0 + SPIN_DECAY_RATE_D * dt
   }
 
-  // W: ウォーターバンド結合 — f は球底が水面に触れた瞬間 0、球中心が水面+r 沈むまで 1 へ。
-  let wy_ = water_y()
+  // W: ウォーターバンド結合 — f は球の右縁が水面線に触れた瞬間 0、球中心が水面線+r 入ったまで 1 へ。
+  let wx_ = water_x()
   let f_w : Double = clamp_d(
-    (g.ball_y + BALL_R_D - wy_) / (2.0 * BALL_R_D),
+    (g.ball_x + BALL_R_D - wx_) / (2.0 * BALL_R_D),
     0.0,
     1.0,
   )
   if f_w > 0.0 {
-    // 浮力：沈み込み分だけ一定の上向き（-y）加速度。下段の減衰と釣り合い、終端上昇速度≈0.8px/f で球は水面へ戻り、底に張り付かない
-    g.vy -= BUOY_K_D * f_w * dt
+    // 浮力：沈み込み分だけ一定のコート側（-x）加速度。下段の減衰と釣り合い、球は水面線へ戻りプール奥に張り付かない
+    g.vx -= BUOY_K_D * f_w * dt
     // 相対粘性：球の速度をその点の水の流れへ引き寄せる（係数 < 1 なので無条件安定）
     let fl : (Double, Double) = bilinear_flow_at(g.ball_x, g.ball_y)
     let rel_k : Double = clamp_d(DRAG_REL_K_D * dt, 0.0, 0.95)

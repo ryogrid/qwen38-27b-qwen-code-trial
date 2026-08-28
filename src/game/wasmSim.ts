@@ -33,9 +33,9 @@ const EV_GAME_OVER = 16; // 勝敗決着（ポイントビットと同一フレ�
 // DifficultyKey → sim.mbt の DIFFICULTIES インデックス（easy/medium/hard の順で一致させること）
 const DIFF_IDX: Record<DifficultyKey, number> = { easy: 0, medium: 1, hard: 2 };
 
-// 水面流れの描画用プロブ格子（sim 内の固定レイアウト。sync() で毎フレームサンプリング）
-const FLOW_COLS = 6;
-const FLOW_ROWS = 3;
+// 水面流れの描画用プロブ格子（プール内 [water_x(), W] × [0, H] の固定レイアウト。sync() で毎フレームサンプリング）
+const FLOW_COLS = 4; // x 方向奥行き（水面線側から手前へ）
+const FLOW_ROWS = 6; // y 方向（上下壁間を均等分割）
 
 interface SimExports {
   seed(s: number): void;
@@ -57,7 +57,7 @@ interface SimExports {
   vx(): number;
   vy(): number;
   spin(): number;
-  water_y(): number; // 水面線（sim y 座標。水帯は [water_y(), H]）
+  water_x(): number; // 水面線（sim x 座標。水帯は [water_x(), W]）
   flow_sample_x(x: number, y: number): number; // 流場の x 成分（px/フレーム@60fps）
   flow_sample_y(x: number, y: number): number; // 流場の y 成分（px/フレーム@60fps）
   p_score(): number;
@@ -133,7 +133,7 @@ export class WasmGame {
   keys = { left: false, right: false };
   mouseY = H / 2; // 直近のマウス位置（パドル移動軸のシム座標）
   useMouseFollow = true; // 移動キーで操作するとキー優先に切り替わる
-  waterY = H; // 水面線（sim y。読み込み前は H=無水）。sync() で毎フレーム同期
+  waterX = W; // 水面線（sim x。読み込み前は W=無水）。sync() で毎フレーム同期
   flowArrows: { x: number; y: number; fx: number; fy: number }[] = []; // 水面流れの描画用プロブ点
 
   private ex: SimExports | null = null;
@@ -148,13 +148,13 @@ export class WasmGame {
       loadWasm()
         .then((ex) => {
           this.ex = ex;
-          // 水帯 [water_y(), H] を FLOW_COLS×FLOW_ROWS の固定プロブで埋める（一度だけ）
-          const wy = ex.water_y();
+          // プール [water_x(), W] × [0, H] を FLOW_COLS×FLOW_ROWS の固定プロブで埋める（一度だけ）
+          const wx = ex.water_x();
           for (let i = 0; i < FLOW_COLS; i++) {
             for (let j = 0; j < FLOW_ROWS; j++) {
               this.flowArrows.push({
-                x: ((i + 0.5) * W) / FLOW_COLS,
-                y: wy + (((j + 0.5) * (H - wy)) / FLOW_ROWS),
+                x: wx + (((i + 0.5) * (W - wx)) / FLOW_COLS),
+                y: ((j + 0.5) * H) / FLOW_ROWS,
                 fx: 0,
                 fy: 0,
               });
@@ -260,7 +260,7 @@ export class WasmGame {
     this.ball.vx = ex.vx();
     this.ball.vy = ex.vy();
     this.ball.spin = ex.spin();
-    this.waterY = ex.water_y();
+    this.waterX = ex.water_x();
     for (const a of this.flowArrows) {
       a.fx = ex.flow_sample_x(a.x, a.y);
       a.fy = ex.flow_sample_y(a.x, a.y);

@@ -122,17 +122,16 @@ test "reset_scores は両スコアを0に戻す" {
 
 // ===== A: スピン／マグヌス効果（付与式は白箱テスト sim_wbtest.mbt で検証） =====
 
-// ===== W: 浸水ウォーターバンド／水面流れ（衝撃の付与式は白箱テスト sim_wbtest.mbt で検証） =====
+// ===== W: コート全面ウォーター／水面流れ（衝撃の付与式は白箱テスト sim_wbtest.mbt で検証） =====
 
 ///|
-// 黒箱プローブ：ウォーターバンド全体を粗い格子でサンプリングし、全ポイントの最大 |v| を返す。
-fn band_flow_probe() -> Double {
-  let wx_ = water_x()
+// 黒箱プローブ：コート全面を粗い格子でサンプリングし、全ポイントの最大 |v| を返す。
+fn court_flow_probe() -> Double {
   let mut mx : Double = 0.0
-  for i in 0..<4 { // x = 水面+10 .. 水面+130（水深 180 の内側）
-    let px : Double = wx_ + 10.0 + (i * 40).to_double()
-    for j in 0..<5 { // y ∈ [26, 494]（上下壁から十分距離のある高さ）
-      let py : Double = 26.0 + (j * 117).to_double()
+  for i in 0..<6 { // x ∈ [75, 825]（キャンバス内）
+    let px : Double = 75.0 + (i * 150).to_double()
+    for j in 0..<4 { // y ∈ [65, 395]（上下壁から十分距離のある高さ）
+      let py : Double = 65.0 + (j * 110).to_double()
       let fxv : Double = flow_sample_x(px, py)
       let fyv : Double = flow_sample_y(px, py)
       let m_ = (fxv * fxv + fyv * fyv).sqrt()
@@ -156,13 +155,13 @@ test "水面流れの大きさは常に FLOW_MAX で有界" {
       prepare_serve(0.0) // ポイント後は再サーブ（JS と同じ手順）
     }
     ev = step(2, 1.0, false, false, 260.0, true)
-    assert_true(band_flow_probe() <= 8.0 + 0.000001) // FLOW_MAX_D 上限（+ε）。双線形はセル値の凸結合なので超過しない
+    assert_true(court_flow_probe() <= 8.0 + 0.000001) // FLOW_MAX_D 上限（+ε）。双線形はセル値の凸結合なので超過しない // FLOW_MAX_D 上限（+ε）。双線形はセル値の凸結合なので超過しない
     i += 1
   }
 }
 
 ///|
-// 同じシード・同じ手順で frames フレーム回し、ウォーターバンドのプローブ結果を返す。
+// 同じシード・同じ手順で frames フレーム回し、コート全面プローブの結果を返す。
 fn flow_replay(seed_val : Int, frames : Int) -> Double {
   seed(seed_val)
   prepare_serve(-1.0) // 方向固定で乱数消費を確定させる
@@ -172,7 +171,7 @@ fn flow_replay(seed_val : Int, frames : Int) -> Double {
     ignore(step(2, 1.0, false, false, 260.0, true))
     i += 1
   }
-  band_flow_probe()
+  court_flow_probe()
 }
 
 ///|
@@ -188,7 +187,7 @@ test "異なるシードでは水面流れが異なる" {
 }
 
 ///|
-test "水面線よりコート側では流れは常にゼロ" {
+test "キャンバス外では流れは常にゼロ" {
   seed(321)
   prepare_serve(-1.0)
   center_paddles()
@@ -200,12 +199,13 @@ test "水面線よりコート側では流れは常にゼロ" {
     }
     ev = step(2, 1.0, false, false, 260.0, true)
     assert_eq(
-      (
-        flow_sample_x(water_x() - 10.0, 260.0),
-        flow_sample_y(water_x() - 10.0, 260.0),
-      ),
+      (flow_sample_x(-10.0, 260.0), flow_sample_y(-10.0, 260.0)),
       (0.0, 0.0),
-    ) // バンド外（水面線よりコート側）は常にゼロベクトル
+    ) // キャンバス外（x < 0）は常にゼロベクトル
+    assert_eq(
+      (flow_sample_x(910.0, 260.0), flow_sample_y(910.0, 260.0)),
+      (0.0, 0.0),
+    ) // キャンバス外（x > W）も常にゼロベクトル
     i += 1
   }
 }

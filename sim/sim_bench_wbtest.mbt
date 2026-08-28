@@ -39,10 +39,10 @@ fn run_case(n : Int, m : Int) -> Unit {
 
 ///|
 test "ベンチマーク：流体格子解像度別の step コスト（表示のみ）" {
-  run_case(15, 5)
-  run_case(20, 7)
-  run_case(30, 9) // 現行既定（セル≈17×20px でほぼ等方）
-  run_case(45, 16)
-  run_case(60, 21)
-  run_case(90, 32)
+  run_case(15, 26)
+  run_case(20, 35)
+  run_case(30, 52) // 現行既定（セル≈17.3px でほぼ等方）
+  run_case(45, 78)
+  run_case(60, 104)
+  run_case(90, 156)
 }

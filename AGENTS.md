@@ -15,7 +15,7 @@ No linter or formatter is configured. TS verification = `typecheck` + `build`; s
 ## Entrypoints & layout
 
 - `index.html` → `src/main.tsx` → `App.tsx` → `components/PongGame.tsx` (all UI and the game loop live there)
-- `src/game/wasmSim.ts` — TS facade over compiled wasm: `WasmGame` (`stepSim` / `prepareServe` / `sync`, event bits → beeps), imports `sim/sim.mbt?raw` and compiles it in-browser via the worker (0 imports, 13 exports + `_start`). Score authority lives in wasm — read back with `pScore()` / `aScore()`, reset with `resetScores()`; `stepSim` returns a `PointResult` whose `gameOver` comes from the sim's `EV_GAME_OVER` bit
+- `src/game/wasmSim.ts` — TS facade over compiled wasm: `WasmGame` (`stepSim` / `prepareServe` / `sync`, event bits → beeps), imports `sim/sim.mbt?raw` and compiles it in-browser via the worker (0 imports, 16 exports + `_start`). Score authority lives in wasm — read back with `pScore()` / `aScore()`, reset with `resetScores()`; `stepSim` returns a `PointResult` whose `gameOver` comes from the sim's `EV_GAME_OVER` bit
 - `src/game/simCompiler.worker.ts` — Web Worker that evals `moonc-web.cjs` (CJS shim) and runs `buildPackage` + `linkCore` against assets under `{BASE_URL}mb-runtime/`; posts back wasm bytes (transferable). Must stay in lockstep with the payload package versions
 - `scripts/copy-moonbit-assets.mjs` — predev/prebuild step: copies `moonc-web.cjs`, `manifest.json`, 78 std `.mi` files and the minimal 3-core subset from `@marianoguerra/tutuca-playground-payload` into `public/mb-runtime/` (gitignored)
 - `src/render/PongScene.ts` — three.js renderer; reads state via structural `SimView` (`player.y`, `ai.y`, `ball.{x,y,vx,vy}`)

@@ -71,16 +71,13 @@ const SPIN_DECAY_RATE_D : Double = 0.004 // 飛行中のスピン減衰率（除
 ///|
 const WALL_SPIN_KEEP_D : Double = 0.8 // 上下壁リバウンド時のスピン残存率
 
-// ===== W: 浸水ウォーターバンド・水面流れの調整値（px/フレーム@60fps 基準。既存速度定数と同一単位！）=====
-
-///|
-const WATER_DEPTH_D : Double = 180.0 // ウォーターバンド深さ（W の 20%）。水面線 x = W_D - この値
+// ===== W: コート全面ウォーター・水面流れの調整値（px/フレーム@60fps 基準。既存速度定数と同一単位！）=====
 
 ///|
 const FLUID_N_DEFAULT : Int = 30 // 水面流れ格子の H 方向（縦軸）セル数（step() コストベンチで最終確定）
 
 ///|
-const FLUID_M_DEFAULT : Int = 9 // ウォーターバンド内 x 方向奥行き行数（1 セル≈20px、N 方向とほぼ等方）
+const FLUID_M_DEFAULT : Int = 52 // W 方向（パドル間 x 軸）セル数（1 セル≈17px、N 方向とほぼ等方）
 
 ///|
 const FLOW_DIFF_K_D : Double = 0.24 // ジャコビ拡散係数：v ← v + K*(近傍平均 - v)。K ≤ 0.5 で安定
@@ -92,13 +89,10 @@ const FLOW_DECAY_RATE_D : Double = 0.010 // 流れの毎フレーム減衰率（
 const FLOW_MAX_D : Double = 8.0 // |flow| の上限 px/フレーム@60fps（有界性保証。MAX_BALL_SPEED_D より小さい）
 
 ///|
-const DRAG_REL_K_D : Double = 0.015 // 水面流れへの相対抗力ゲイン（次元なし。τ≈67フレームで球速を殺しすぎず、流場へ緩やかに引き寄せる）
+const DRAG_REL_K_D : Double = 0.003 // コート全面ウォーター用：相対抗力ゲイン（次元なし）。DRAG_ABS_RATE_D と併せ全減衰 λ≈0.005/フレーム（τ≈200f）で、BASE_BALL_SPEED_D のショットでもコート横断に届く到達距離（≈1300px）を確保しつつ、明確な水中減速感を残す
 
 ///|
-const DRAG_ABS_RATE_D : Double = 0.002 // 浸水時の絶対減衰率（除算形、f=1 で半減≈347フレーム。相対項と併せて球の浮上・再開行を妨げない弱め）
-
-///|
-const BUOY_K_D : Double = 0.03 // 浮力加速度 px/フレーム²@60fps（沈み込み分 f に比例。抗力と釣り合い終端上昇速度≈BUOY_K/(DRAG_REL+DRAG_ABS)≈1.7px/f、球は水面へ戻り底に張り付かない）
+const DRAG_ABS_RATE_D : Double = 0.002 // 水中での減衰率（除数形式、半減≈347フレーム。相対項と併せて球のリバウンド・再開行を妨げない弱め）
 
 ///|
 const DROP_INTERVAL_MIN_D : Double = 90.0 // ドロップ間隔の下限 フレーム（≈1.5秒）
@@ -351,13 +345,7 @@ pub fn spin() -> Double {
   g.spin
 }
 
-// ===== W: 浸水ウォーターバンド・水面流れ（決定的。乱数の消費は rng のみ） =====
-
-///|
-pub fn water_x() -> Double {
-  W_D - WATER_DEPTH_D // 水面線（sim x）。ウォーターバンドは [water_x(), W_D]
-}
-
+// ===== W: コート全面ウォーター・水面流れ（決定的。乱数の消費は rng のみ） =====
 // 水面流れ格子をゼロに初期化・再構築し、ドロップスケジューラもリセットする。
 // ベンチマークが解像度を切り替えるため直接呼ぶ（白箱アクセス）
 
@@ -440,17 +428,16 @@ fn update_fluid(dt : Double) -> Unit {
 fn spawn_droplet() -> Unit {
   let n = g.fl_n
   let m = g.fl_m
-  let wx_ = water_x()
-  let cx : Double = wx_ + rnd() * WATER_DEPTH_D // x ∈ [WX, W]
+  let cx : Double = rnd() * W_D // x ∈ [0, W]（全面）
   let cy : Double = rnd() * H_D // y ∈ [0, H]
 
   // 影響セル範囲（半径 R を格子座標に変換、外側 1 セル余白）
   let dy_cell = H_D / n.to_double()
-  let dx_cell = WATER_DEPTH_D / m.to_double()
+  let dx_cell = W_D / m.to_double()
   let ci0 : Int = ((cy - DROP_RADIUS_D) / dy_cell).floor().to_int()
   let ci1 : Int = ((cy + DROP_RADIUS_D) / dy_cell).ceil().to_int()
-  let cj0 : Int = ((cx - wx_ - DROP_RADIUS_D) / dx_cell).floor().to_int()
-  let cj1 : Int = ((cx - wx_ + DROP_RADIUS_D) / dx_cell).ceil().to_int()
+  let cj0 : Int = ((cx - DROP_RADIUS_D) / dx_cell).floor().to_int()
+  let cj1 : Int = ((cx + DROP_RADIUS_D) / dx_cell).ceil().to_int()
 
   let j_lo : Int = if cj0 < 0 { 0 } else { cj0 }
   let j_hi : Int = if cj1 > m { m } else { cj1 }
@@ -460,7 +447,7 @@ fn spawn_droplet() -> Unit {
     let i_hi : Int = if ci1 > n { n } else { ci1 }
     for i in i_lo..<i_hi {
       // セル中心からの距離と方向（セル中心座標）
-      let sx_ : Double = wx_ + (j.to_double() + 0.5) * dx_cell - cx
+      let sx_ : Double = (j.to_double() + 0.5) * dx_cell - cx
       let sy_ : Double = (i.to_double() + 0.5) * dy_cell - cy
       let dist = (sx_ * sx_ + sy_ * sy_).sqrt()
       if dist < DROP_RADIUS_D {
@@ -470,7 +457,7 @@ fn spawn_droplet() -> Unit {
           g.fl_x_a[row + i] += imp * (sx_ / dist)
           g.fl_y_a[row + i] += imp * (sy_ / dist)
         } else {
-          // 着水点がセル中心と完全に一致した場合はコート側（-x）へ抜ける
+          // 完全一致時は固定方向（-x）へ抜ける（決定的性のため）
           g.fl_x_a[row + i] -= imp
         }
       }
@@ -491,19 +478,18 @@ fn spawn_droplet() -> Unit {
   }
 }
 
-// (x, y) の水面流れの双線形サンプリング。ウォーターバンドの外はゼロベクトル
+// (x, y) の水面流れの双線形サンプリング。キャンバスの外はゼロベクトル
 
 ///|
 fn bilinear_flow_at(x : Double, y : Double) -> (Double, Double) {
   let n = g.fl_n.to_double()
   let m = g.fl_m.to_double()
-  let wx_ = water_x()
-  if x <= wx_ || x > W_D || y < 0.0 || y > H_D {
-    return (0.0, 0.0) // バンド外（水面線よりコート側含む）は流れなし
+  if x < 0.0 || x > W_D || y < 0.0 || y > H_D {
+    return (0.0, 0.0) // キャンバス外は流れなし
   }
 
   let u : Double = clamp_d(y / H_D * n - 0.5, 0.0, n - 1.0)
-  let v : Double = clamp_d((x - wx_) / WATER_DEPTH_D * m - 0.5, 0.0, m - 1.0)
+  let v : Double = clamp_d(x / W_D * m - 0.5, 0.0, m - 1.0)
 
   let ni : Int = g.fl_n
   let nj : Int = g.fl_m
@@ -707,23 +693,15 @@ fn update_ball(dt : Double) -> Int {
     g.spin /= 1.0 + SPIN_DECAY_RATE_D * dt
   }
 
-  // W: ウォーターバンド結合 — f は球の右縁が水面線に触れた瞬間 0、球中心が水面線+r 入ったまで 1 へ。
-  let wx_ = water_x()
-  let f_w : Double = clamp_d(
-    (g.ball_x + BALL_R_D - wx_) / (2.0 * BALL_R_D),
-    0.0,
-    1.0,
-  )
-  if f_w > 0.0 {
-    // 浮力：沈み込み分だけ一定のコート側（-x）加速度。下段の減衰と釣り合い、球は水面線へ戻りプール奥に張り付かない
-    g.vx -= BUOY_K_D * f_w * dt
+  // W: コート全面ウォーター結合 — 球は常時水面（浮力廃止）。キャンバス外（得点フレーム等）は結合なし。
+  if g.ball_x >= 0.0 && g.ball_x <= W_D {
     // 相対粘性：球の速度をその点の水の流れへ引き寄せる（係数 < 1 なので無条件安定）
     let fl : (Double, Double) = bilinear_flow_at(g.ball_x, g.ball_y)
     let rel_k : Double = clamp_d(DRAG_REL_K_D * dt, 0.0, 0.95)
-    g.vx += rel_k * f_w * (fl.0 - g.vx)
-    g.vy += rel_k * f_w * (fl.1 - g.vy)
+    g.vx += rel_k * (fl.0 - g.vx)
+    g.vy += rel_k * (fl.1 - g.vy)
     // 絶対減衰（除数形式、dt が大きくても安定）：相対粘性とマグヌスの過剰エネルギーを放出する
-    let damp : Double = 1.0 / (1.0 + DRAG_ABS_RATE_D * f_w * dt)
+    let damp : Double = 1.0 / (1.0 + DRAG_ABS_RATE_D * dt)
     g.vx *= damp
     g.vy *= damp
   }

@@ -7,8 +7,7 @@ interface SimView {
   player: { y: number };
   ai: { y: number };
   ball: { x: number; y: number; vx: number; vy: number; spin: number };
-  waterX: number; // 水面線（sim x 座標。プールは [waterX, W] × 全高）。描画のみ
-  flowArrows: { x: number; y: number; fx: number; fy: number }[]; // 水面流れのプロブ点。描画のみ
+  flowArrows: { x: number; y: number; fx: number; fy: number }[]; // コート全面水流のプロブ点。描画のみ
 }
 
 // シミュレーション座標 → ワールド座標のマッピング
@@ -46,7 +45,7 @@ export class PongScene {
   private readonly arrowShaftGeo: THREE.BoxGeometry;
   private readonly arrowHeadGeo: THREE.ConeGeometry;
   private readonly arrowMat: THREE.MeshStandardMaterial;
-  private readonly waterMesh: THREE.Mesh; // E2: 水帯のスラブ（半透明。テーブル上・装飾のみ）
+  private readonly waterMesh: THREE.Mesh; // E2: コート全面ウォーターのスラブ（半透明。テーブル上・装飾のみ）
   private hopPhase = 0; // Y バウンド演出の位相（0..1）
   private prevInFlight = false; // サーブ開始時に位相をリセットするための前フレーム状態
   private lastNow = 0;
@@ -149,12 +148,12 @@ export class PongScene {
     }
     this.scene.add(this.ballMesh);
 
-    // E2: プールスラブ（テーブル上に sim x ∈ [waterX, W] × 全高を覆う半透明板。位置・奥行きは update() で g.waterX から）
+    // E2: コート全面ウォーターのスラブ（テーブル全面 sim x ∈ [0, W] × 全高を覆う半透明板。静的配置）
     this.waterMesh = new THREE.Mesh(
       new THREE.BoxGeometry(H, 4, W),
       new THREE.MeshStandardMaterial({ color: 0x3f8fd6, transparent: true, opacity: 0.3, roughness: 0.25 }),
     );
-    this.waterMesh.position.set(0, 2, 0); // update() が scale/position を水帯幅に合わせる（未同期時は 0 に見える）
+    this.waterMesh.position.set(0, 2, 0);
     this.scene.add(this.waterMesh);
 
     // E2: 水面流れのスパース矢じり（+X を向く基準長 ARROW_LEN のグループを game.flowArrows 分だけ動的生成する）
@@ -220,15 +219,6 @@ export class PongScene {
     this.prevInFlight = inFlight && playing;
 
     this.ballMesh.position.set(toWorldX(b.y), BALL_R + bounceY, toWorldZ(b.x));
-
-    // E2: プールスラブ（奥行き = W - waterX を世界 Z 方向に。未同期の waterX=W では見えない）
-    const dWater = W - g.waterX;
-    this.waterMesh.scale.z = Math.max(dWater / W, 0);
-    this.waterMesh.position.set(0, 2, toWorldZ(g.waterX + dWater / 2));
-
-    // E2: ボールが浸水中は青みにかすかに色を変える（見た目専用。シミュレーションには影響しない）
-    const subF = Math.min(Math.max((b.x + BALL_R - g.waterX) / (2 * BALL_R), 0), 1);
-    (this.ballMesh.material as THREE.MeshStandardMaterial).color.setRGB(1 - 0.3 * subF, 1 - 0.15 * subF, 1);
 
     // E2: 水面流れの矢じり（game.flowArrows の数に合わせて動的生成。流れがほぼゼロでは非表示）
     const probes = g.flowArrows;

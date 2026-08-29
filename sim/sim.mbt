@@ -26,6 +26,9 @@ const BASE_BALL_SPEED_D : Double = 6.5
 
 ///|
 const MAX_BALL_SPEED_D : Double = 14.0
+
+///|
+const MIN_BALL_SPEED_D : Double = 3.0 // ボール合成速度 |v| の下限 px/フレーム（BASE の半減。水流で大幅減速しても動き続ける）
 // パドルヒット毎の速度倍率（MAX_BALL_SPEED で上限）
 
 ///|
@@ -93,6 +96,9 @@ const DRAG_REL_K_D : Double = 0.0072 // コート全面ウォーター用：相�
 
 ///|
 const DRAG_ABS_RATE_D : Double = 0.0006 // 水中での純減衰率（除数形式、半減≈1155フレーム。減速の主役は相対項のため小さめ。球のリバウンド・再開行を妨げない）
+
+///|
+const FLOW_STILL_EPS_D : Double = 0.1 // 「水が動いていない」と判定する流速の閾値 px/フレーム（この軸の |flow| がこれ未満ならその軸に抵抗を発生させない＝静水では球は減速しない。減衰は乗算形のため完全なゼロにはならず、厳密比較では静止を検出できない）
 
 ///|
 const DROP_INTERVAL_MIN_D : Double = 40.0 // ドロップ間隔の下限 フレーム（≈0.7秒。平均≈1.3秒で頻繁に着水する）
@@ -698,15 +704,19 @@ fn update_ball(dt : Double) -> Int {
 
   // W: コート全面ウォーター結合 — 球は常時水面（浮力廃止）。キャンバス外（得点フレーム等）は結合なし。
   if g.ball_x >= 0.0 && g.ball_x <= W_D {
-    // 相対粘性：球の速度をその点の水の流れへ引き寄せる（係数 < 1 なので無条件安定）
     let fl : (Double, Double) = bilinear_flow_at(g.ball_x, g.ball_y)
-    let rel_k : Double = clamp_d(DRAG_REL_K_D * dt, 0.0, 0.95)
-    g.vx += rel_k * (fl.0 - g.vx)
-    g.vy += rel_k * (fl.1 - g.vy)
+    let rel_k : Double = clamp_d(DRAG_REL_K_D * dt, 0.0, 0.95) // 係数 < 1 なので無条件安定
     // 絶対減衰（除数形式、dt が大きくても安定）：相対粘性とマグヌスの過剰エネルギーを放出する
     let damp : Double = 1.0 / (1.0 + DRAG_ABS_RATE_D * dt)
-    g.vx *= damp
-    g.vy *= damp
+    // 抵抗は水が実際に動いている軸にだけ作用 — その軸の flow ≒ 0 では抵抗なし（静水で球が止まらない）
+    if fl.0.abs() > FLOW_STILL_EPS_D {
+      g.vx += rel_k * (fl.0 - g.vx) // 相対粘性：球の速度をその点の水の流れへ引き寄せる
+      g.vx *= damp
+    }
+    if fl.1.abs() > FLOW_STILL_EPS_D {
+      g.vy += rel_k * (fl.1 - g.vy)
+      g.vy *= damp
+    }
   }
   // 水結合後も合成速度でクランプ（トンネリング・暴発防止）
   let sp_now = (g.vx * g.vx + g.vy * g.vy).sqrt()
@@ -714,6 +724,16 @@ fn update_ball(dt : Double) -> Int {
     let k = MAX_BALL_SPEED_D / sp_now
     g.vx *= k
     g.vy *= k
+  } else if sp_now < MIN_BALL_SPEED_D {
+    // 合成速度の下限：水流で大きく減速しても動き続ける（|v| ≒ 0 のときは serve_dir へ決定的に再開）
+    if sp_now > 0.000001 {
+      let k_ = MIN_BALL_SPEED_D / sp_now
+      g.vx *= k_
+      g.vy *= k_
+    } else {
+      g.vx = MIN_BALL_SPEED_D * g.serve_dir
+      g.vy = 0.0
+    }
   }
 
   g.ball_x += g.vx * dt

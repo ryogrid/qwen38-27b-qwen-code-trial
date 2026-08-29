@@ -127,6 +127,47 @@ test "ジャコビ拡散はエネルギーを無中生に増やさない" {
 }
 
 ///|
+test "静水では水抵抗が発生しない（流れがゼロの軸は減速させない）" {
+  init_fluid_grid(FLUID_N_DEFAULT, FLUID_M_DEFAULT) // 無垢な水面（着水なし → 全セルの flow = 0）
+  g.ball_x = W_D / 2.0
+  g.ball_y = H_D / 2.0
+  g.vx = 6.5
+  g.vy = -3.0
+  g.spin = 0.0 // マグヌスを無効化して水結合の効果を分離する
+  ignore(update_ball(1.0))
+  assert_eq(g.vx, 6.5) // 相対粘性も絶対減衰も一切掛からない
+  assert_eq(g.vy, -3.0)
+}
+
+///|
+test "合成速度は MIN_BALL_SPEED_D で下限制御される（方向は保持）" {
+  init_fluid_grid(FLUID_N_DEFAULT, FLUID_M_DEFAULT)
+  g.ball_x = W_D / 2.0
+  g.ball_y = H_D / 2.0
+  g.vx = 1.0 // 水流で大きく減速した状態を模擬
+  g.vy = 0.5
+  g.spin = 0.0
+  ignore(update_ball(1.0))
+  let sp_after : Double = (g.vx * g.vx + g.vy * g.vy).sqrt()
+  let diff_ = sp_after - MIN_BALL_SPEED_D
+  assert_true(diff_ >= -0.000001 && diff_ <= 0.000001) // ちょうど下限まで引き上げられる
+  assert_true(g.vx > 0.0 && g.vy > 0.0) // 進行方向は反転しない
+}
+
+///|
+test "速度ゼロのボールは serve_dir へ決定的に再開される" {
+  init_fluid_grid(FLUID_N_DEFAULT, FLUID_M_DEFAULT)
+  g.ball_x = W_D / 2.0
+  g.ball_y = H_D / 2.0
+  g.vx = 0.0 // 方向が不定の完全停止状態
+  g.vy = 0.0
+  g.spin = 0.0
+  g.serve_dir = -1.0
+  ignore(update_ball(1.0))
+  assert_eq((g.vx, g.vy), (-MIN_BALL_SPEED_D, 0.0)) // 直前サーブ方向へ復旧
+}
+
+///|
 // ドロップスケジューラを動かさず拡散・減衰だけを行う補助（update_fluid の本体と同じ処理）
 fn update_fluid_no_droplet() -> Unit {
   let n = g.fl_n

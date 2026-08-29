@@ -32,10 +32,10 @@ const PADDLE_MESH_H = 18;
 // E2: 水面流れ矢じりの基準寸法（インスタンス行列の scale.x で流速に応じて伸び縮みする）
 const ARROW_SHAFT_LEN = 20; // 軸（箱）の長さ
 const ARROW_HEAD_LEN = 14; // 頭（コーン）の高さ。合計が基準全長
-// セル単位メッシュ用サイズ調整：1セル≈17px なので矢じりは概ね1セル内に収める
-const ARROW_FLOW_SCALE = 2.5; // 流速(px/フレーム)→ワールド長の倍率
-const ARROW_MIN_LEN = 3; // 表示する矢じりの最小長（流速が小さくても方向が見える程度）
-const ARROW_MAX_LEN = 21; // 矢じり長の上限（≈1セル+α。隣セルに大きく食い込まない）
+// セル単位メッシュ用サイズ調整：1セル≈17px なので矢じりは複数セルにまたがる太さ・長さにし、一瞥で方向が読めるようにする
+const ARROW_FLOW_SCALE = 4.0; // 流速(px/フレーム)→ワールド長の倍率
+const ARROW_MIN_LEN = 12; // 表示する矢じりの最小長（弱い流れでも明確な方向を見る）
+const ARROW_MAX_LEN = 48; // 矢じり長の上限（≈3セル。隣セルと重なり筋状の流れを作る）
 const ARROW_HIDE_BELOW = 0.1; // この流速未満のセルは非表示（静水面）
 
 export class PongScene {
@@ -49,7 +49,7 @@ export class PongScene {
   private arrowInst: THREE.InstancedMesh | null = null; // E2: 水面流れ矢じりの軸（全セル分・インスタンス化。テーブル上・装飾のみ）
   private arrowHeadInst: THREE.InstancedMesh | null = null; // 同じく頭部コーン（軸と同一のインスタンス行列を共有）
   private readonly tmpObj = new THREE.Object3D(); // インスタンス行列を構成する作業用オブジェクト
-  private readonly arrowMat: THREE.MeshStandardMaterial;
+  private readonly arrowMat: THREE.Material;
   private readonly waterMesh: THREE.Mesh; // E2: コート全面ウォーターのスラブ（半透明。テーブル上・装飾のみ）
   private hopPhase = 0; // Y バウンド演出の位相（0..1）
   private prevInFlight = false; // サーブ開始時に位相をリセットするための前フレーム状態
@@ -161,8 +161,9 @@ export class PongScene {
     this.waterMesh.position.set(0, 2, 0);
     this.scene.add(this.waterMesh);
 
-    // E2: 水面流れ矢じり（セル単位メッシュ。InstancedMesh を update() で一度だけ確保し、描画呼び出しを2つに抑える）
-    this.arrowMat = new THREE.MeshStandardMaterial({ color: 0xbfe6ff, transparent: true, opacity: 0.75 });
+    // E2: 水面流れ矢じり（セル単位メッシュ。InstancedMesh を update() で一度だけ確保し、描画呼び出しを2つに抑える）。
+    // 無照明（Basic）素材で明るく一定の見た目にし、半透明スラブの上でも方向が明確に読めるようにする
+    this.arrowMat = new THREE.MeshBasicMaterial({ color: 0xcfeeff, transparent: true, opacity: 0.95 });
 
     // パドル（X 方向に長さ PADDLE_H、奥行き PADDLE_W。z はシムの PX/AX から固定）
     const paddleGeo = new THREE.BoxGeometry(PADDLE_H, PADDLE_MESH_H, PADDLE_W);
@@ -241,7 +242,8 @@ export class PongScene {
           k = len / (ARROW_SHAFT_LEN + ARROW_HEAD_LEN);
         }
         // sim の流れ (fx,fy) → 世界の方向：+simY=+worldX、+simX=-worldZ（yaw θ: cosθ=fy, sinθ=fx）
-        this.tmpObj.position.set(toWorldX(p.y), 4, toWorldZ(p.x));
+        // y=6：スラブ上面（y=4）より浮かせ、軸が水面に埋もれない位置へ
+        this.tmpObj.position.set(toWorldX(p.y), 6, toWorldZ(p.x));
         this.tmpObj.rotation.y = Math.atan2(p.fx, p.fy); // atan2(0,0)=0 なので非表示セルも決定的
         this.tmpObj.scale.set(k, 1, 1); // 矢じりの軸方向（+X）のみ伸縮（太さは不変）
         this.tmpObj.updateMatrix();
@@ -262,9 +264,9 @@ export class PongScene {
   // geometry を焼き込みで「インスタンス原点 = 矢じりの尾、+X 方向へ伸びる基準長」にする
   private ensureArrows(count: number): void {
     if (this.arrowInst !== null || count === 0) return;
-    const shaftGeo = new THREE.BoxGeometry(ARROW_SHAFT_LEN, 3, 5);
+    const shaftGeo = new THREE.BoxGeometry(ARROW_SHAFT_LEN, 4, 6); // やや太め：遠くからでも存在感を出す
     shaftGeo.translate(ARROW_SHAFT_LEN / 2, 0, 0); // 原点（尾）から +X へ伸びる軸
-    const headGeo = new THREE.ConeGeometry(7, ARROW_HEAD_LEN, 12);
+    const headGeo = new THREE.ConeGeometry(8, ARROW_HEAD_LEN, 12);
     headGeo.rotateZ(-Math.PI / 2); // コーンの +Y を +X（矢じりの先）へ向ける
     headGeo.translate(ARROW_SHAFT_LEN + ARROW_HEAD_LEN / 2, 0, 0); // 軸の先端に接する位置へ
     this.arrowInst = new THREE.InstancedMesh(shaftGeo, this.arrowMat, count);

@@ -101,10 +101,10 @@ const DRAG_ABS_RATE_D : Double = 0.0006 // 水中での純減衰率（除数形�
 const FLOW_STILL_EPS_D : Double = 0.1 // 「水が動いていない」と判定する流速の閾値 px/フレーム（この軸の |flow| がこれ未満ならその軸に抵抗を発生させない＝静水では球は減速しない。減衰は乗算形のため完全なゼロにはならず、厳密比較では静止を検出できない）
 
 ///|
-const DROP_INTERVAL_MIN_D : Double = 40.0 // ドロップ間隔の下限 フレーム（≈0.7秒。平均≈1.3秒で頻繁に着水する）
+const DROP_INTERVAL_MIN_D : Double = 20.0 // ドロップ間隔の下限 フレーム（≈0.3秒。旧値40を半減し着水頻度を倍にした）
 
 ///|
-const DROP_INTERVAL_VAR_D : Double = 80.0 // ドロップ間隔の乱数幅（次回 = min + rnd()*var、xorshift32 で決定的）
+const DROP_INTERVAL_VAR_D : Double = 40.0 // ドロップ間隔の乱数幅（次回 = min + rnd()*var、xorshift32 で決定的。旧値80を半減し頻度を倍にした）
 
 ///|
 const DROP_RADIUS_D : Double = 96.0 // ドロップ着水の影響半径 px（旧 64 の 1.5 倍で広域攪拌）

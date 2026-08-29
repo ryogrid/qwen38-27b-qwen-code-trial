@@ -92,7 +92,10 @@ const FLOW_DECAY_RATE_D : Double = 0.010 // 流れの毎フレーム減衰率（
 const FLOW_MAX_D : Double = 8.0 // |flow| の上限 px/フレーム@60fps（有界性保証。MAX_BALL_SPEED_D より小さい）
 
 ///|
-const DRAG_REL_K_D : Double = 0.0072 // コート全面ウォーター用：相対抗力ゲイン（次元なし）。流れ追従の均衡速度≈局所流速の 92%（=K/(K+ABS)）で、ボールは明確に水流に運ばれる。DRAG_ABS_RATE_D と併せ全減衰 λ≈0.0078/フレーム（τ≈128f）、初レターンショット（BASE×SPEEDUP≈6.83px/f）の到達距離≈875px でパドル間≈812px を横断可能
+const DRAG_REL_K_D : Double = 0.011 // コート全面ウォーター用：相対抗力ゲイン（次元なし）。流れ追従の均衡速度≈局所流速の 95%（=K/(K+ABS)）で、ボールは明確に水流に運ばれる。さらに球速に比例する倍率（DRAG_SPEED_SCALE_MAX_D 上限）を掛けるため、ラリーステージ（球速）に関わらず横断中の水流影響量がほぼ一定になる
+
+///|
+const DRAG_SPEED_SCALE_MAX_D : Double = 2.5 // 水結合の速度スケーリング倍率の上限：毎フレームゲインは |v|/BASE_BALL_SPEED_D に比例（サーブ速≈6.83px/f で scale=1、MAX_BALL_SPEED≈14 で≈2.15）。速い球は横断に要するフレーム数が少ないため毎フレームゲインを大きくして補正し、上限で係数を有界化
 
 ///|
 const DRAG_ABS_RATE_D : Double = 0.0006 // 水中での純減衰率（除数形式、半減≈1155フレーム。減速の主役は相対項のため小さめ。球のリバウンド・再開行を妨げない）
@@ -705,7 +708,14 @@ fn update_ball(dt : Double) -> Int {
   // W: コート全面ウォーター結合 — 球は常時水面（浮力廃止）。キャンバス外（得点フレーム等）は結合なし。
   if g.ball_x >= 0.0 && g.ball_x <= W_D {
     let fl : (Double, Double) = bilinear_flow_at(g.ball_x, g.ball_y)
-    let rel_k : Double = clamp_d(DRAG_REL_K_D * dt, 0.0, 0.95) // 係数 < 1 なので無条件安定
+    // 速度比例スケーリング：速い球ほどコート横断に必要なフレーム数が少ないため、毎フレームゲインを |v| に比例させ（BASE_BALL_SPEED_D で scale=1）、横断中の水流影響の合計が球速にほぼ独立になるようにする
+    let sp0 : Double = (g.vx * g.vx + g.vy * g.vy).sqrt()
+    let scale_d : Double = clamp_d(
+      sp0 / BASE_BALL_SPEED_D,
+      0.0,
+      DRAG_SPEED_SCALE_MAX_D,
+    ) // ゲイン倍率（上限で有界化）
+    let rel_k : Double = clamp_d(DRAG_REL_K_D * dt * scale_d, 0.0, 0.95) // 係数 < 1 なので無条件安定（最悪 dt≤3・最大倍率で≈0.082）
     // 絶対減衰（除数形式、dt が大きくても安定）：相対粘性とマグヌスの過剰エネルギーを放出する
     let damp : Double = 1.0 / (1.0 + DRAG_ABS_RATE_D * dt)
     // 抵抗は水が実際に動いている軸にだけ作用 — その軸の flow ≒ 0 では抵抗なし（静水で球が止まらない）

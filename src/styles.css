@@ -55,6 +55,19 @@ body {
   display: block;
 }
 
+/* ===== ボールの回転 RPM（画面右側。水流力矢印と同系色）===== */
+.rpm-readout {
+  position: absolute;
+  top: calc(2.5em + (100% - 2.5em) / 2); /* gl-stage 領域の縦中央 */
+  right: 8px;
+  transform: translateY(-50%);
+  font-size: clamp(14px, 2vw, 20px);
+  letter-spacing: 2px;
+  color: #9fe8ff;
+  opacity: 0.85;
+  pointer-events: none;
+}
+
 /* ===== オーバーレイ共通 ===== */
 .overlay {
   position: absolute;

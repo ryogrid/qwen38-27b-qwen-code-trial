@@ -1,6 +1,6 @@
 // ===== three.js シーン構築と毎フレーム更新（3D 描画層）=====
 import * as THREE from "three";
-import { W, H, PADDLE_W, PADDLE_H, BALL_R, PX, AX, FLOW_N, FLOW_M } from "../game/constants";
+import { W, H, PADDLE_W, PADDLE_H, BALL_R, PX, AX, BASE_BALL_SPEED, FLOW_N, FLOW_M } from "../game/constants";
 
 // シーンが読むシムの最小構造（wasmSim の WasmGame が適合する）
 interface SimView {
@@ -25,6 +25,53 @@ const BOUNCE_AMP = 26; // バウンド高さ（ワールド単位）
 const HOP_PERIOD_FRAMES = 18; // ホップ周期（約0.3秒 / 60fps 基準）
 // スピン可視化の回転速度（見た目専用。spin=1 での rad/フレーム相当）
 const SPIN_VIS_RATE = 0.5;
+
+// ===== 水流力矢印（表示のみ）。sim/sim.mbt の update_ball 水結合のミラー——片側を変えたら両方変えること =====
+const WF_DRAG_REL_K = 0.011; // = DRAG_REL_K_D (sim/sim.mbt)
+const WF_SPEED_SCALE_MAX = 2.5; // = DRAG_SPEED_SCALE_MAX_D (sim/sim.mbt)
+const WF_ABS_RATE = 0.0006; // = DRAG_ABS_RATE_D (sim/sim.mbt)
+const WF_STILL_EPS = 0.1; // = FLOW_STILL_EPS_D (sim/sim.mbt)。この流速未満の軸には力を加えない
+const FORCE_ARROW_Y_OFFSET = 30; // ボール中心からの高さ（ワールド単位）
+const FA_HEAD_LEN = 7; // 矢じりの長さ（下の幾何構築と一致させること）
+const FORCE_ARROW_MIN_DV = 0.01; // Δv(px/フレーム²) がこれ未満は非表示（≈静水の減衰分のみ）
+const FORCE_ARROW_MIN_LEN = 16;
+const FORCE_ARROW_MAX_LEN = 48;
+
+/** spin → RPM 表示値。+ は右回転（上から見て時計回り）、− は左回転。表示専用 */
+export function spinToRpm(spin: number): number {
+  // update() は +spin を上から見て時計回り（マグヌス方向）に見える回転にするため、符号はそのまま換算する
+  return spin * SPIN_VIS_RATE * (3600 / (2 * Math.PI));
+}
+
+// sim.mbt の bilinear_flow_at と同一計算。probes はセル中心配置・x メジャー（index = j*FLOW_N + i）
+function sampleFlowAt(
+  probes: { fx: number; fy: number }[],
+  sx: number,
+  sy: number,
+): [number, number] {
+  if (sx < 0 || sx > W || sy < 0 || sy > H) return [0, 0]; // キャンバス外は流れなし
+  const u = Math.min(Math.max((sy / H) * FLOW_N - 0.5, 0), FLOW_N - 1); // y → 行 i
+  const v = Math.min(Math.max((sx / W) * FLOW_M - 0.5, 0), FLOW_M - 1); // x → 列 j
+  const i0 = Math.floor(u);
+  const j0 = Math.floor(v);
+  const i1 = Math.min(i0 + 1, FLOW_N - 1); // 端セルでは隣を自分自身へ（fu=0 で安全）
+  const j1 = Math.min(j0 + 1, FLOW_M - 1);
+  const fu = u - i0;
+  const fv = v - j0;
+  const at = (j: number, i: number): [number, number] => {
+    const p = probes[j * FLOW_N + i];
+    return [p.fx, p.fy];
+  };
+  const [x00, y00] = at(j0, i0);
+  const [x10, y10] = at(j0, i1);
+  const [x01, y01] = at(j1, i0);
+  const [x11, y11] = at(j1, i1);
+  const topX = x00 + (x10 - x00) * fu;
+  const botX = x01 + (x11 - x01) * fu;
+  const topY = y00 + (y10 - y00) * fu;
+  const botY = y01 + (y11 - y01) * fu;
+  return [topX + (botX - topX) * fv, topY + (botY - topY) * fv];
+}
 
 // パドルメッシュの高さ（装飾用。シムの PADDLE_W/H は X/Z 方向の寸法に使う）
 const PADDLE_MESH_H = 18;
@@ -54,6 +101,9 @@ export class PongScene {
   private readonly tileMat = new THREE.MeshBasicMaterial({ color: 0xffffff }); // 無照明+白ベース：インスタンス色がそのまま乗算され常に明るい
   private readonly tmpColor = new THREE.Color(); // タイル色の lerp に使う作業用色（毎フレームの確保を避ける）
   private readonly waterMesh: THREE.Mesh; // E2: コート全面ウォーターのスラブ（半透明。テーブル上・装飾のみ）
+  private readonly forceArrow!: THREE.Group; // ボール上の水流力矢印（表示のみ。ローカル +Z = 力の向き）
+  private readonly faShaft!: THREE.Mesh; // 軸（単位高さの円柱を毎フレーム z スケールで伸縮）
+  private readonly faHead!: THREE.Mesh; // 矢じり（+Z 先頭）
   private hopPhase = 0; // Y バウンド演出の位相（0..1）
   private prevInFlight = false; // サーブ開始時に位相をリセットするための前フレーム状態
   private lastNow = 0;
@@ -164,6 +214,20 @@ export class PongScene {
     this.waterMesh.position.set(0, 2, 0);
     this.scene.add(this.waterMesh);
 
+    // ボール上の水流力矢印（表示のみ）。ローカル +Z が力の向き、長さは Δv の強さに比例
+    const faMat = new THREE.MeshBasicMaterial({ color: 0x8ff2ff });
+    this.forceArrow = new THREE.Group();
+    const shaftGeo = new THREE.CylinderGeometry(1.4, 1.4, 1, 8);
+    shaftGeo.rotateX(Math.PI / 2); // 軸を +Z 方向へ（中心原点・単位高さ → z スケールで伸縮）
+    this.faShaft = new THREE.Mesh(shaftGeo, faMat);
+    this.forceArrow.add(this.faShaft);
+    const headGeo = new THREE.ConeGeometry(4.5, FA_HEAD_LEN, 12);
+    headGeo.rotateX(Math.PI / 2); // 先頭を +Z 方向へ（中心原点）
+    this.faHead = new THREE.Mesh(headGeo, faMat);
+    this.forceArrow.add(this.faHead);
+    this.forceArrow.visible = false;
+    this.scene.add(this.forceArrow);
+
     // パドル（X 方向に長さ PADDLE_H、奥行き PADDLE_W。z はシムの PX/AX から固定）
     const paddleGeo = new THREE.BoxGeometry(PADDLE_H, PADDLE_MESH_H, PADDLE_W);
     this.playerMesh = new THREE.Mesh(
@@ -212,8 +276,8 @@ export class PongScene {
       const u = this.hopPhase; // 放物運動風の弧：4·u·(1-u) で着地時に速度が最大
       bounceY = BOUNCE_AMP * 4 * u * (1 - u);
 
-      // A: スピンを回転演出として表現（テーブル法線軸回り。シームで視認）
-      this.ballMesh.rotation.y += b.spin * SPIN_VIS_RATE * dtF;
+      // A: スピンを回転演出として表現（テーブル法線軸回り。シームで視認）。- 符号は +spin を上から見て時計回り（マグヌス効果の曲がり方向と整合）にするため
+      this.ballMesh.rotation.y -= b.spin * SPIN_VIS_RATE * dtF;
     } else {
       this.hopPhase = 0;
     }
@@ -242,6 +306,32 @@ export class PongScene {
       if (tiles.instanceColor !== null) {
         tiles.instanceColor.needsUpdate = true;
       }
+    }
+
+    // ボール上の水流力矢印（表示のみ）。sim.mbt の水結合 Δv をミラーして向き・強さを示す。物理には影響しない
+    let dvx = 0;
+    let dvy = 0;
+    if (playing && inFlight && b.x >= 0 && b.x <= W) { // キャンバス外の結合ガードは sim.mbt の update_ball と同一
+      const [flx, fly] = sampleFlowAt(probes, b.x, b.y);
+      const sp0 = Math.hypot(b.vx, b.vy);
+      const scaleD = Math.min(Math.max(sp0 / BASE_BALL_SPEED, 0), WF_SPEED_SCALE_MAX);
+      const relK = Math.min(Math.max(WF_DRAG_REL_K * dtF * scaleD, 0), 0.95);
+      const damp = 1 / (1 + WF_ABS_RATE * dtF);
+      if (Math.abs(flx) > WF_STILL_EPS) dvx = (b.vx + relK * (flx - b.vx)) * damp - b.vx;
+      if (Math.abs(fly) > WF_STILL_EPS) dvy = (b.vy + relK * (fly - b.vy)) * damp - b.vy;
+    }
+    const fmag = Math.hypot(dvx, dvy);
+    if (fmag > FORCE_ARROW_MIN_DV) {
+      const len = Math.min(Math.max(fmag * 160, FORCE_ARROW_MIN_LEN), FORCE_ARROW_MAX_LEN);
+      this.faShaft.scale.z = Math.max(len - FA_HEAD_LEN, 1); // 単位高さの円柱 → z スケールで軸長に
+      this.faShaft.position.z = (len - FA_HEAD_LEN) / 2;
+      this.faHead.position.z = len - FA_HEAD_LEN / 2;
+      const fa = this.forceArrow;
+      fa.rotation.y = Math.atan2(dvy, -dvx); // シム y→ワールド +X、シム x→−Z（toWorldX/Z と同一）
+      fa.position.set(toWorldX(b.y), BALL_R + bounceY + FORCE_ARROW_Y_OFFSET, toWorldZ(b.x));
+      fa.visible = true;
+    } else {
+      this.forceArrow.visible = false;
     }
 
     // 非プレイ中も時刻は最新に保つ（復帰時の dt スパイク防止）

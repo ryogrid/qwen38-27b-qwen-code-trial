@@ -3,6 +3,7 @@ import { WasmGame } from "../game/wasmSim";
 import type { PointResult } from "../game/wasmSim";
 import { PongScene } from "../render/PongScene";
 import { setSoundEnabled } from "../game/sound";
+import { spinToRpm } from "../render/PongScene";
 import { SCREENS, H } from "../game/constants";
 import type { DifficultyKey, ScreenId } from "../game/constants";
 
@@ -29,6 +30,7 @@ export default function PongGame() {
   const screenRef = useRef(screen);
   const difficultyRef = useRef(difficulty);
   const soundOnRef = useRef(soundOn);
+  const rpmElRef = useRef<HTMLSpanElement>(null); // RPM 表示（毎フレーム textContent を直接更新）
   screenRef.current = screen;
   difficultyRef.current = difficulty;
   soundOnRef.current = soundOn;
@@ -154,6 +156,12 @@ export default function PongGame() {
         lastTime.current = now;
       }
       scene.update(game, now, playing);
+      // RPM 表示（+右回転/−左回転。spin は stepSim の sync で最新化済み）
+      const rpmEl = rpmElRef.current;
+      if (rpmEl) {
+        const r = Math.round(spinToRpm(game.ball.spin));
+        rpmEl.textContent = r === 0 ? "0 RPM" : `${r > 0 ? "+" : "-"}${Math.abs(r)} RPM`;
+      }
     }
     rafId = requestAnimationFrame(frame);
 
@@ -184,6 +192,9 @@ export default function PongGame() {
         </header>
 
         <div ref={containerRef} className="gl-stage"></div>
+
+        {/* ボールの回転 RPM（画面右側。+ 右回り / − 左回り） */}
+        <span className="rpm-readout" ref={rpmElRef}>0 RPM</span>
 
         <section className={"overlay" + (inMenu ? " visible" : "")}>
           <h1>PONG</h1>

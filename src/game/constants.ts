@@ -30,6 +30,10 @@ export const DIFFICULTIES = {
 
 export type DifficultyKey = keyof typeof DIFFICULTIES;
 
+// 水面流れの描画用プロブ格子（sim.mbt の FLUID_N_DEFAULT × FLUID_M_DEFAULT と一致させること。各セル中心に1つ）
+export const FLOW_N = 30; // H 方向（縦軸）セル数（= sim.mbt の FLUID_N_DEFAULT。dx≈17px）
+export const FLOW_M = 52; // W 方向（横軸）セル数（= sim.mbt の FLUID_M_DEFAULT）
+
 export const SCREENS = {
   MENU: "menu",
   PLAYING: "playing",

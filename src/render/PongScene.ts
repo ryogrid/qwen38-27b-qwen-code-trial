@@ -1,6 +1,6 @@
 // ===== three.js シーン構築と毎フレーム更新（3D 描画層）=====
 import * as THREE from "three";
-import { W, H, PADDLE_W, PADDLE_H, BALL_R, PX, AX } from "../game/constants";
+import { W, H, PADDLE_W, PADDLE_H, BALL_R, PX, AX, FLOW_N, FLOW_M } from "../game/constants";
 
 // シーンが読むシムの最小構造（wasmSim の WasmGame が適合する）
 interface SimView {
@@ -29,14 +29,18 @@ const SPIN_VIS_RATE = 0.5;
 // パドルメッシュの高さ（装飾用。シムの PADDLE_W/H は X/Z 方向の寸法に使う）
 const PADDLE_MESH_H = 18;
 
-// E2: 水面流れ矢じりの基準寸法（インスタンス行列の scale.x で流速に応じて伸び縮みする）
-const ARROW_SHAFT_LEN = 20; // 軸（箱）の長さ
-const ARROW_HEAD_LEN = 14; // 頭（コーン）の高さ。合計が基準全長
-// セル単位メッシュ用サイズ調整：1セル≈17px なので矢じりは複数セルにまたがる太さ・長さにし、一瞥で方向が読めるようにする
-const ARROW_FLOW_SCALE = 4.0; // 流速(px/フレーム)→ワールド長の倍率
-const ARROW_MIN_LEN = 12; // 表示する矢じりの最小長（弱い流れでも明確な方向を見る）
-const ARROW_MAX_LEN = 48; // 矢じり長の上限（≈3セル。隣セルと重なり筋状の流れを作る）
-const ARROW_HIDE_BELOW = 0.1; // この流速未満のセルは非表示（静水面）
+// E2: 水面流れグリッドタイル（方向=色、濃淡=強さ。テーブル上のセル単位 InstancedMesh・装飾のみ）
+const FLOW_TILE_COVER = 0.75; // タイル辺の長さを1セル幅に対する比率（すき間でグリッドの目地を表示）
+const FLOW_TILE_THICK = 1; // タイルの厚み（ワールド単位）
+const FLOW_TILE_Y = 4.6; // タイル中心の高さ。スラブ上面(y=4)よりわずかに浮かせ、水面に埋もれなくする
+const FLOW_COLOR_REF = 4; // 「満色」に対応する流速(px/フレーム)。以上はここでクランプ
+const FLOW_STILL_EPS = 0.05; // この流速未満は静水とみなしグリッド基調色を使う（±微動の色ノイズ防止）
+// 方向→色のマッピング：+fy=画面右=赤系、-fy=左=青系（どちらも明るい色）。強さで濃い(高彩度)⇔薄い(淡い)を連続的に lerp
+const FLOW_PALE_R = new THREE.Color(0xfde8e4); // 右・弱い（淡い赤）
+const FLOW_FULL_R = new THREE.Color(0xff3524); // 右・強い（鮮やかな赤）
+const FLOW_PALE_B = new THREE.Color(0xdfeaff); // 左・弱い（淡い青）
+const FLOW_FULL_B = new THREE.Color(0x2b6bff); // 左・強い（鮮やかな青）
+const FLOW_STILL_C = new THREE.Color(0xc9d4e2); // 静水・グリッド基調色（明るい無彩色）
 
 export class PongScene {
   private readonly renderer: THREE.WebGLRenderer;
@@ -46,10 +50,9 @@ export class PongScene {
   private readonly ballSeamMat: THREE.MeshStandardMaterial; // スピンを可視化するボール表面のマーカー素材
   private readonly playerMesh: THREE.Mesh;
   private readonly aiMesh: THREE.Mesh;
-  private arrowInst: THREE.InstancedMesh | null = null; // E2: 水面流れ矢じりの軸（全セル分・インスタンス化。テーブル上・装飾のみ）
-  private arrowHeadInst: THREE.InstancedMesh | null = null; // 同じく頭部コーン（軸と同一のインスタンス行列を共有）
-  private readonly tmpObj = new THREE.Object3D(); // インスタンス行列を構成する作業用オブジェクト
-  private readonly arrowMat: THREE.Material;
+  private flowTileInst: THREE.InstancedMesh | null = null; // E2: 水面流れグリッドタイル（全セル分・インスタンス化。テーブル上・装飾のみ）
+  private readonly tileMat = new THREE.MeshBasicMaterial({ color: 0xffffff }); // 無照明+白ベース：インスタンス色がそのまま乗算され常に明るい
+  private readonly tmpColor = new THREE.Color(); // タイル色の lerp に使う作業用色（毎フレームの確保を避ける）
   private readonly waterMesh: THREE.Mesh; // E2: コート全面ウォーターのスラブ（半透明。テーブル上・装飾のみ）
   private hopPhase = 0; // Y バウンド演出の位相（0..1）
   private prevInFlight = false; // サーブ開始時に位相をリセットするための前フレーム状態
@@ -161,10 +164,6 @@ export class PongScene {
     this.waterMesh.position.set(0, 2, 0);
     this.scene.add(this.waterMesh);
 
-    // E2: 水面流れ矢じり（セル単位メッシュ。InstancedMesh を update() で一度だけ確保し、描画呼び出しを2つに抑える）。
-    // 無照明（Basic）素材で明るく一定の見た目にし、半透明スラブの上でも方向が明確に読めるようにする
-    this.arrowMat = new THREE.MeshBasicMaterial({ color: 0xcfeeff, transparent: true, opacity: 0.95 });
-
     // パドル（X 方向に長さ PADDLE_H、奥行き PADDLE_W。z はシムの PX/AX から固定）
     const paddleGeo = new THREE.BoxGeometry(PADDLE_H, PADDLE_MESH_H, PADDLE_W);
     this.playerMesh = new THREE.Mesh(
@@ -222,36 +221,27 @@ export class PongScene {
 
     this.ballMesh.position.set(toWorldX(b.y), BALL_R + bounceY, toWorldZ(b.x));
 
-    // E2: 水面流れの矢じり（セル単位・各セル中心から伸びる。流速がほぼゼロでは非表示）
+    // E2: 水面流れグリッドタイル（方向=色、濃淡=強さ。位置は静的なので毎フレーム色のみ更新）
     const probes = g.flowArrows;
-    if (this.arrowInst === null || this.arrowHeadInst === null) {
-      this.ensureArrows(probes.length); // 一度だけ確保（プロブレイアウトは wasmSim の構築時に固定）
-    }
-    const shafts = this.arrowInst;
-    const heads = this.arrowHeadInst;
-    if (shafts !== null && heads !== null) {
+    this.ensureFlowTiles(probes); // 行列は一度だけ確保（プロブレイアウトは wasmSim の構築時に固定）
+    const tiles = this.flowTileInst;
+    if (tiles !== null) {
       for (let i = 0; i < probes.length; i++) {
-        const p = probes[i];
-        const mag = Math.hypot(p.fx, p.fy);
-        // 流速に応じた見かけの長さ（px/フレーム@60fps → ワールド長）。静止時はゼロスケールで非表示
-        let k: number;
-        if (!playing || mag < ARROW_HIDE_BELOW) {
-          k = 0;
+        const s = probes[i].fy; // +simY=+worldX=画面右：正→赤、負→青（fx は奥行き成分で現在常にゼロ）
+        let c: THREE.Color;
+        if (Math.abs(s) < FLOW_STILL_EPS) {
+          c = FLOW_STILL_C;
         } else {
-          const len = Math.min(Math.max(mag * ARROW_FLOW_SCALE, ARROW_MIN_LEN), ARROW_MAX_LEN);
-          k = len / (ARROW_SHAFT_LEN + ARROW_HEAD_LEN);
+          const t = Math.min(Math.abs(s) / FLOW_COLOR_REF, 1); // 強=濃い(高彩度)、弱=薄い：|流速|で連続的に lerp
+          if (s > 0) this.tmpColor.lerpColors(FLOW_PALE_R, FLOW_FULL_R, t);
+          else this.tmpColor.lerpColors(FLOW_PALE_B, FLOW_FULL_B, t);
+          c = this.tmpColor;
         }
-        // sim の流れ (fx,fy) → 世界の方向：+simY=+worldX、+simX=-worldZ（yaw θ: cosθ=fy, sinθ=fx）
-        // y=6：スラブ上面（y=4）より浮かせ、軸が水面に埋もれない位置へ
-        this.tmpObj.position.set(toWorldX(p.y), 6, toWorldZ(p.x));
-        this.tmpObj.rotation.y = Math.atan2(p.fx, p.fy); // atan2(0,0)=0 なので非表示セルも決定的
-        this.tmpObj.scale.set(k, 1, 1); // 矢じりの軸方向（+X）のみ伸縮（太さは不変）
-        this.tmpObj.updateMatrix();
-        shafts.setMatrixAt(i, this.tmpObj.matrix);
-        heads.setMatrixAt(i, this.tmpObj.matrix);
+        tiles.setColorAt(i, c);
       }
-      shafts.instanceMatrix.needsUpdate = true;
-      heads.instanceMatrix.needsUpdate = true;
+      if (tiles.instanceColor !== null) {
+        tiles.instanceColor.needsUpdate = true;
+      }
     }
 
     // 非プレイ中も時刻は最新に保つ（復帰時の dt スパイク防止）
@@ -260,22 +250,25 @@ export class PongScene {
     this.renderer.render(this.scene, this.camera);
   }
 
-  // E2: セル単位の水の流れの矢じり（軸・頭部をそれぞれ1枚の InstancedMesh で管理）
-  // geometry を焼き込みで「インスタンス原点 = 矢じりの尾、+X 方向へ伸びる基準長」にする
-  private ensureArrows(count: number): void {
-    if (this.arrowInst !== null || count === 0) return;
-    const shaftGeo = new THREE.BoxGeometry(ARROW_SHAFT_LEN, 3, 3); // 細身の軸：長い矢じりが重なっても筋として区別できる
-    shaftGeo.translate(ARROW_SHAFT_LEN / 2, 0, 0); // 原点（尾）から +X へ伸びる軸
-    const headGeo = new THREE.ConeGeometry(8, ARROW_HEAD_LEN, 12);
-    headGeo.rotateZ(-Math.PI / 2); // コーンの +Y を +X（矢じりの先）へ向ける
-    headGeo.translate(ARROW_SHAFT_LEN + ARROW_HEAD_LEN / 2, 0, 0); // 軸の先端に接する位置へ
-    this.arrowInst = new THREE.InstancedMesh(shaftGeo, this.arrowMat, count);
-    this.arrowHeadInst = new THREE.InstancedMesh(headGeo, this.arrowMat, count);
-    for (const im of [this.arrowInst, this.arrowHeadInst]) {
-      im.instanceMatrix.setUsage(THREE.DynamicDrawUsage); // 毎フレーム全インスタンス更新する想定
-      im.frustumCulled = false; // コート全面に散在するためバウンディングによる一括カリングを無効化
-      this.scene.add(im);
+  // E2: 水面流れグリッドタイル（単一の InstancedMesh・1セル1タイル。位置は不変のため行列と初期色をここで一度だけ設定）
+  private ensureFlowTiles(probes: { x: number; y: number }[]): void {
+    if (this.flowTileInst !== null || probes.length === 0) return;
+    const sizeX = ((H / FLOW_N) * FLOW_TILE_COVER); // タイル幅（画面 X=シムの y セル × 比率）
+    const sizeZ = ((W / FLOW_M) * FLOW_TILE_COVER); // 奥行き Z=シムの x セル × 比率
+    const inst = new THREE.InstancedMesh(new THREE.BoxGeometry(sizeX, FLOW_TILE_THICK, sizeZ), this.tileMat, probes.length);
+    const obj = new THREE.Object3D();
+    for (let i = 0; i < probes.length; i++) {
+      obj.position.set(toWorldX(probes[i].y), FLOW_TILE_Y, toWorldZ(probes[i].x));
+      obj.updateMatrix();
+      inst.setMatrixAt(i, obj.matrix);
+      inst.setColorAt(i, FLOW_STILL_C); // 初期値=静水色（同時に instanceColor バッファも作成される）
     }
+    if (inst.instanceColor !== null) {
+      inst.instanceColor.setUsage(THREE.DynamicDrawUsage); // 色は毎フレーム更新する
+    }
+    inst.frustumCulled = false; // コート全面に散在するためバウンディングによる一括カリングを無効化
+    this.flowTileInst = inst;
+    this.scene.add(inst);
   }
 
   // コンテナサイズ変化時のリサイズ（アスペクト比と描画バッファを更新）
@@ -296,9 +289,9 @@ export class PongScene {
       if (Array.isArray(mat)) mat.forEach((m) => m.dispose());
       else if (mat) mat.dispose();
     });
-    // E2: インスタンス行列は geometry 配下ではないため明示的に解放（リマウント毎に溜めない）
-    this.arrowInst?.instanceMatrix.dispose();
-    this.arrowHeadInst?.instanceMatrix.dispose();
+    // E2: インスタンスバッファは geometry 配下ではないため明示的に解放（リマウント毎に溜めない）
+    this.flowTileInst?.instanceMatrix.dispose();
+    this.flowTileInst?.instanceColor?.dispose();
     this.renderer.dispose();
     this.renderer.domElement.remove();
   }

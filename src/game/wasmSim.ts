@@ -5,7 +5,7 @@
 // スコア・勝敗の権威は wasm 側（p_score/a_score/reset_scores/EV_GAME_OVER）。
 // 乱数は wasm 内部の xorshift32（seed() で固定可）。決定的リプレイ用。
 
-import { W, H } from "./constants";
+import { W, H, FLOW_N, FLOW_M } from "./constants";
 import type { DifficultyKey } from "./constants";
 import { beep } from "./sound";
 import simSource from "../../sim/sim.mbt?raw";
@@ -33,10 +33,7 @@ const EV_GAME_OVER = 16; // 勝敗決着（ポイントビットと同一フレ�
 // DifficultyKey → sim.mbt の DIFFICULTIES インデックス（easy/medium/hard の順で一致させること）
 const DIFF_IDX: Record<DifficultyKey, number> = { easy: 0, medium: 1, hard: 2 };
 
-// 水面流れの描画用プロブ格子：sim.mbt の FLUID_N_DEFAULT × FLUID_M_DEFAULT と一致させること（セル単位で各セル中心に1つ）。sync() で毎フレームサンプリング
-const FLOW_N = 30; // H 方向（縦軸）セル数（= sim.mbt の FLUID_N_DEFAULT。dx≈17px）
-const FLOW_M = 52; // W 方向（横軸）セル数（= sim.mbt の FLUID_M_DEFAULT）
-
+// 水面流れのプロブ格子は constants.ts の FLOW_N × FLOW_M（sim.mbt の FLUID_*_DEFAULT と一致させること）。sync() で毎フレームサンプリング
 interface SimExports {
   seed(s: number): void;
   prepare_serve(dir: number): void;

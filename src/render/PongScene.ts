@@ -140,7 +140,7 @@ export class PongScene {
     // ボール（テーブル面上を転がる。y は update() で BOUNCE_AMP の演出分だけ加算）
     this.ballMesh = new THREE.Mesh(
       new THREE.SphereGeometry(BALL_R, 32, 16),
-      new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.35 }),
+      new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.35 }),
     );
     this.ballMesh.castShadow = true;
     // A: ボール表面の「シーム」（子メッシュ）。球体を回転させるだけでスピンが視認できる

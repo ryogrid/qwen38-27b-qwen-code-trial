@@ -264,7 +264,7 @@ export class PongScene {
   // geometry を焼き込みで「インスタンス原点 = 矢じりの尾、+X 方向へ伸びる基準長」にする
   private ensureArrows(count: number): void {
     if (this.arrowInst !== null || count === 0) return;
-    const shaftGeo = new THREE.BoxGeometry(ARROW_SHAFT_LEN, 4, 6); // やや太め：遠くからでも存在感を出す
+    const shaftGeo = new THREE.BoxGeometry(ARROW_SHAFT_LEN, 3, 3); // 細身の軸：長い矢じりが重なっても筋として区別できる
     shaftGeo.translate(ARROW_SHAFT_LEN / 2, 0, 0); // 原点（尾）から +X へ伸びる軸
     const headGeo = new THREE.ConeGeometry(8, ARROW_HEAD_LEN, 12);
     headGeo.rotateZ(-Math.PI / 2); // コーンの +Y を +X（矢じりの先）へ向ける

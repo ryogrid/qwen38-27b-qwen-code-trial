@@ -55,7 +55,7 @@ body {
   display: block;
 }
 
-/* ===== ボールの回転 RPM（画面右側。水流力矢印と同系色）===== */
+/* ===== ボールの回転 RPM（画面右側）===== */
 .rpm-readout {
   position: absolute;
   top: calc(2.5em + (100% - 2.5em) / 2); /* gl-stage 領域の縦中央 */

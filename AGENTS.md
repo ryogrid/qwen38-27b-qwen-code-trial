@@ -2,6 +2,31 @@
 
 Pong game (1P vs CPU). Vite 5 + React 19 + TypeScript (strict), three.js renderer. The simulation runs in MoonBit-compiled wasm (`sim/`) behind a TS facade; the wasm is compiled **in the browser at runtime** (`moonc-web` inside a Web Worker) — no MoonBit toolchain needed on the JS side. Comments and UI text are Japanese — keep new comments/UI strings in Japanese too.
 
+## Working principles
+
+### Workflow
+
+- **Plan first.** Enter plan mode for any non-trivial task (3+ steps or an architectural decision). Write detailed specs upfront to reduce ambiguity, and use plan mode for verification steps too, not just building. If something goes sideways, stop and re-plan immediately — don't keep pushing.
+- **Use subagents liberally** to keep the main context window clean: offload research, exploration, and parallel analysis. For complex problems, throw more compute at it — one focused tack per subagent.
+- **Verify before declaring done.** Never mark a task complete without proving it works: run tests, check logs, demonstrate correctness. When relevant, diff behavior between the baseline (vanilla / upstream) and your change. Ask: "Would a staff engineer approve this?"
+- **Demand elegance, balanced.** For non-trivial changes, pause and ask whether there's a more elegant way; if a fix feels hacky, redo it as the clean solution. Skip this for simple, obvious fixes — don't over-engineer.
+- **Fix bugs autonomously.** Given a bug report, failing test, or error log, just resolve it — point at the evidence and fix the root cause without hand-holding.
+
+### Task management
+
+1. **Plan first** — write the plan with checkable items.
+2. **Verify the plan** — check in before starting implementation.
+3. **Track progress** — mark items complete as you go.
+4. **Explain changes** — give a high-level summary at each step.
+5. **Document results** — add a review section when the task closes.
+6. **Capture lessons** — after any correction from the user, record the pattern and write a rule for yourself that prevents the same mistake. Review relevant lessons at session start.
+
+### Core principles
+
+- **Simplicity first** — make every change as simple as possible; impact minimal code.
+- **No laziness** — find root causes; no temporary fixes; hold to senior-developer standards.
+- **Minimal impact** — changes should touch only what's necessary; avoid introducing bugs.
+
 ## Commands
 
 - `npm run dev` — dev server

@@ -32,10 +32,10 @@ const WF_SPEED_SCALE_MAX = 2.5; // = DRAG_SPEED_SCALE_MAX_D (sim/sim.mbt)
 const WF_ABS_RATE = 0.0006; // = DRAG_ABS_RATE_D (sim/sim.mbt)
 const WF_STILL_EPS = 0.1; // = FLOW_STILL_EPS_D (sim/sim.mbt)。この流速未満の軸には力を加えない
 const FORCE_ARROW_Y_OFFSET = 30; // ボール中心からの高さ（ワールド単位）
-const FA_HEAD_LEN = 10; // 矢じりの長さ（下の幾何構築と一致させること）
+const FA_HEAD_LEN = 15; // 矢じりの長さ（下の幾何構築と一致させること）
 const FORCE_ARROW_MIN_DV = 0.01; // Δv(px/フレーム²) がこれ未満は非表示（≈静水の減衰分のみ）
-const FORCE_ARROW_MIN_LEN = 26;
-const FORCE_ARROW_MAX_LEN = 78;
+const FORCE_ARROW_MIN_LEN = 39;
+const FORCE_ARROW_MAX_LEN = 117;
 
 /** spin → RPM 表示値。+ は右回転（上から見て時計回り）、− は左回転。表示専用 */
 export function spinToRpm(spin: number): number {
@@ -215,13 +215,14 @@ export class PongScene {
     this.scene.add(this.waterMesh);
 
     // ボール上の水流力矢印（表示のみ）。ローカル +Z が力の向き、長さは Δv の強さに比例
-    const faMat = new THREE.MeshBasicMaterial({ color: 0xffe62c }); // 目立つ黄色（視認性優先）
+    // レモン黄≈hsl(56°,100%,68%)：暗背景(#0a0a0a)で明度を上げ最大対比。彩度は100%で白系UIと区別し、色相はシアンUI/桃のパドル/赤青フローから離す
+    const faMat = new THREE.MeshBasicMaterial({ color: 0xfff35c });
     this.forceArrow = new THREE.Group();
-    const shaftGeo = new THREE.CylinderGeometry(2.4, 2.4, 1, 12);
+    const shaftGeo = new THREE.CylinderGeometry(3.6, 3.6, 1, 12);
     shaftGeo.rotateX(Math.PI / 2); // 軸を +Z 方向へ（中心原点・単位高さ → z スケールで伸縮）
     this.faShaft = new THREE.Mesh(shaftGeo, faMat);
     this.forceArrow.add(this.faShaft);
-    const headGeo = new THREE.ConeGeometry(7.5, FA_HEAD_LEN, 16);
+    const headGeo = new THREE.ConeGeometry(11.25, FA_HEAD_LEN, 16);
     headGeo.rotateX(Math.PI / 2); // 先頭を +Z 方向へ（中心原点）
     this.faHead = new THREE.Mesh(headGeo, faMat);
     this.forceArrow.add(this.faHead);
@@ -322,7 +323,7 @@ export class PongScene {
     }
     const fmag = Math.hypot(dvx, dvy);
     if (fmag > FORCE_ARROW_MIN_DV) {
-      const len = Math.min(Math.max(fmag * 200, FORCE_ARROW_MIN_LEN), FORCE_ARROW_MAX_LEN);
+      const len = Math.min(Math.max(fmag * 300, FORCE_ARROW_MIN_LEN), FORCE_ARROW_MAX_LEN);
       this.faShaft.scale.z = Math.max(len - FA_HEAD_LEN, 1); // 単位高さの円柱 → z スケールで軸長に
       this.faShaft.position.z = (len - FA_HEAD_LEN) / 2;
       this.faHead.position.z = len - FA_HEAD_LEN / 2;
